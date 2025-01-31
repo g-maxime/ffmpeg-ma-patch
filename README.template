@@ -1,0 +1,14 @@
+MediaArea.net FFmpeg %VERSION%.
+https://MediaArea.net
+
+This package contains the %BUILD_TYPE% %PACKAGE_TYPE% for %BUILD_ARCH% %BUILD_OS%.
+
+This build includes the following MediaArea.net patches:
+ %PATCHES%
+
+This build includes the following third-party libraries:
+ FreeType                       2.10.2 <http://freetype.sourceforge.net>
+ HarfBuzz                       8.2.2 <http://harfbuzz.org>
+
+Build options:
+ %BUILD_OPTIONS%
