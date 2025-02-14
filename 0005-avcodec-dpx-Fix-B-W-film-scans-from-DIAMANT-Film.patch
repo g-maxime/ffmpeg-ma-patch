@@ -1,0 +1,24 @@
+From 9ce2b6d91a70b7d1220675ee3dbca369a17db792 Mon Sep 17 00:00:00 2001
+From: Jerome Martinez <jerome@mediaarea.net>
+Date: Thu, 4 Jul 2024 10:45:57 +0200
+Subject: [PATCH 5/5] avcodec/dpx: Fix B&W film scans from DIAMANT-Film
+
+---
+ libavcodec/dpx.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/libavcodec/dpx.c b/libavcodec/dpx.c
+index 80616d98a2..1140954f6b 100644
+--- a/libavcodec/dpx.c
++++ b/libavcodec/dpx.c
+@@ -488,6 +488,7 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *p,
+ 
+     // Some devices do not pad 10bit samples to whole 32bit words per row
+     if (!memcmp(input_device, "Scanity", 7) ||
++        !memcmp(creator, "DIAMANT-Film", 12) ||
+         !memcmp(creator, "Lasergraphics Inc.", 18)) {
+         if (bits_per_color == 10)
+             unpadded_10bit = 1;
+-- 
+2.13.3.windows.1
+
