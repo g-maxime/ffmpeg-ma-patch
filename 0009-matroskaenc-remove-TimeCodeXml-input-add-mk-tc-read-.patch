@@ -1,0 +1,449 @@
+From bba74da727b4cc45ce5144dc8c49f4c9fd4c2590 Mon Sep 17 00:00:00 2001
+From: Dave Rice <dave@dericed.com>
+Date: Sun, 6 Jul 2025 23:56:26 +0200
+Subject: [PATCH] matroskaenc: remove TimeCodeXml input, add mk tc read
+ (20250709)
+
+---
+ libavdevice/decklink_dec.cpp |   6 +-
+ libavformat/matroska.h       |   2 +
+ libavformat/matroskadec.c    |  14 +++
+ libavformat/matroskaenc.c    | 180 ++++-------------------------------
+ libavutil/timecode.c         | 104 ++++++++++++++++++++
+ libavutil/timecode.h         |  22 +++++
+ 6 files changed, 164 insertions(+), 164 deletions(-)
+
+diff --git a/libavdevice/decklink_dec.cpp b/libavdevice/decklink_dec.cpp
+index 418701e4e0..1dacf1b129 100644
+--- a/libavdevice/decklink_dec.cpp
++++ b/libavdevice/decklink_dec.cpp
+@@ -826,9 +826,9 @@ HRESULT decklink_input_callback::VideoInputFrameArrived(
+                         uint8_t* packed_metadata;
+ 
+                         if (av_cmp_q(ctx->video_st->r_frame_rate, av_make_q(60, 1)) < 1) {
+-                            uint32_t tc_data = av_timecode_get_smpte_from_framenum(&tcr, 0);
+-                            int size = sizeof(uint32_t) * 4;
+-                            uint32_t *sd = (uint32_t *)av_packet_new_side_data(&pkt, AV_PKT_DATA_S12M_TIMECODE, size);
++                            uint64_t tc_data = av_timecode_expand_to_64bit(av_timecode_get_smpte_from_framenum(&tcr, 0));
++                            int size = sizeof(uint64_t) * 4;
++                            uint64_t *sd = (uint64_t *)av_packet_new_side_data(&pkt, AV_PKT_DATA_S12M_TIMECODE, size);
+ 
+                             if (sd) {
+                                 *sd       = 1;       // one TC
+diff --git a/libavformat/matroska.h b/libavformat/matroska.h
+index 719f2ef796..d228fed704 100644
+--- a/libavformat/matroska.h
++++ b/libavformat/matroska.h
+@@ -361,12 +361,14 @@ typedef enum {
+   MATROSKA_BLOCK_ADD_ID_TYPE_DEFAULT                = 0,
+   MATROSKA_BLOCK_ADD_ID_TYPE_OPAQUE                 = 1,
+   MATROSKA_BLOCK_ADD_ID_TYPE_ITU_T_T35              = 4,
++  MATROSKA_BLOCK_ADD_ID_TYPE_SMPTE_12M              = 121,
+   MATROSKA_BLOCK_ADD_ID_TYPE_DVCC                   = 0x64766343, // MKBETAG('d','v','c','C')
+   MATROSKA_BLOCK_ADD_ID_TYPE_DVVC                   = 0x64767643, // MKBETAG('d','v','v','C')
+ } MatroskaBlockAddIDType;
+ 
+ #define MATROSKA_BLOCK_ADD_ID_OPAQUE 1
+ #define MATROSKA_BLOCK_ADD_ID_ITU_T_T35 4
++#define MATROSKA_BLOCK_ADD_ID_SMPTE_12M 101
+ 
+ /*
+  * Matroska Codec IDs, strings
+diff --git a/libavformat/matroskadec.c b/libavformat/matroskadec.c
+index da5166319e..d98227d63d 100644
+--- a/libavformat/matroskadec.c
++++ b/libavformat/matroskadec.c
+@@ -2530,6 +2530,8 @@ static int mkv_parse_block_addition_mappings(AVFormatContext *s, AVStream *st, M
+                     return AVERROR_INVALIDDATA;
+             }
+             break;
++        case MATROSKA_BLOCK_ADD_ID_TYPE_SMPTE_12M:
++                break;
+         case MATROSKA_BLOCK_ADD_ID_TYPE_DVCC:
+         case MATROSKA_BLOCK_ADD_ID_TYPE_DVVC:
+             if ((ret = mkv_parse_dvcc_dvvc(s, st, track, &mapping->extradata)) < 0)
+@@ -3954,6 +3956,18 @@ static int matroska_parse_block_additional(MatroskaDemuxContext *matroska,
+ 
+         return 0;
+     }
++    case MATROSKA_BLOCK_ADD_ID_TYPE_SMPTE_12M: {
++        if (size < 8)
++            break; //ignore
++
++        int sd_size = sizeof(uint64_t) * 4;
++        uint64_t *sd = (uint64_t *)av_packet_new_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, sd_size);
++        if (sd) {
++            *sd       = 1;                          // one TC
++            AV_WB64(sd + 1, *((uint64_t*)data));    // TC
++        }
++        return 0;
++    }
+     default:
+         break;
+     }
+diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
+index 330ccd237f..47c9bab415 100644
+--- a/libavformat/matroskaenc.c
++++ b/libavformat/matroskaenc.c
+@@ -60,6 +60,7 @@
+ #include "libavutil/rational.h"
+ #include "libavutil/samplefmt.h"
+ #include "libavutil/stereo3d.h"
++#include "libavutil/timecode.h"
+ 
+ #include "libavcodec/av1.h"
+ #include "libavcodec/bytestream.h"
+@@ -2741,150 +2742,16 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
+     const AVDOVIDecoderConfigurationRecord *dovi;
+     const AVPacketSideData *sd;
+ 
+-    if (mkv->mediatimecode && par->codec_type == AVMEDIA_TYPE_VIDEO) {
+-        if (s->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
+-            av_log(s, AV_LOG_ERROR, "mediatimecode not enabled, -strict exprimental needed for this experimental feature.\n");
+-        } else {
+-            FILE* f;
+-            f = fopen (mkv->mediatimecode, "rb");
+-            if (f == NULL) {
+-                av_log(s, AV_LOG_ERROR, "mediatimecode not enabled, can not open %s.\n", mkv->mediatimecode);
+-            } else {
+-                int size, size_read;
+-                char* buffer;
+-                size_t timecodes_pos;
+-                tfsxml_string p, v, a;
+-                fseek(f, 0L, SEEK_END);
+-                size=ftell(f);
+-                fseek(f, 0, SEEK_SET);
+-                buffer = (char*) malloc(size);
+-                size_read = fread((void*)buffer, 1, size, f);
+-                if (size_read != size) {
+-                    av_log(s, AV_LOG_ERROR, "mediatimecode not enabled, can not read %s, %d bytes read.\n", mkv->mediatimecode);
+-                }
+-                if (!tfsxml_init(&p, buffer, size, 0)) {
+-                    for (;;) {
+-                        if (tfsxml_next(&p, &v)) 
+-                            break;
+-                        if (!tfsxml_strcmp_charp(v, "MediaTimecode")) {
+-                            if (tfsxml_enter(&p))
+-                                continue;
+-                            for (;;) {
+-                                if (tfsxml_next(&p, &v)) 
+-                                    break;
+-                                if (!tfsxml_strcmp_charp(v, "media")) {
+-                                    put_ebml_uint(pb, MATROSKA_ID_TRACKMAXBLKADDID, 121);
+-                                    timecodes_pos = 0;
+-                                    if (tfsxml_enter(&p)) {
+-                                        continue;
+-                                    }
+-                                    for (;;) {
+-                                        if (timecodes_pos >= 100 || tfsxml_next(&p, &v)) 
+-                                            break;
+-                                        if (!tfsxml_strcmp_charp(v, "timecode_stream")) {
+-                                            uint64_t* values;
+-                                            values = (uint64_t*) malloc(sizeof(uint64_t) * (2 + size));
+-                                            values[0] = 2;
+-                                            values[1] = 2;
+-                                            for (;;) {
+-                                                if (tfsxml_attr(&p, &a, &v)) 
+-                                                    break;
+-                                                if (!tfsxml_strcmp_charp(a, "start_tc")) {
+-                                                    if (v.len == 11) {
+-                                                        values[values[0]]=
+-                                                          ((uint64_t)v.buf[0] - '0') << 56
+-                                                        | ((uint64_t)v.buf[1] - '0') << 48
+-                                                        | ((uint64_t)v.buf[3] - '0') << 40
+-                                                        | ((uint64_t)v.buf[4] - '0') << 32
+-                                                        | ((uint64_t)v.buf[6] - '0') << 24
+-                                                        | ((uint64_t)v.buf[7] - '0') << 16
+-                                                        | ((uint64_t)v.buf[8] == '?' ? 1 : 0) << 10
+-                                                        | ((uint64_t)v.buf[9] - '0') <<  8
+-                                                        | ((uint64_t)v.buf[10] - '0')     ;
+-                                                        values[0]++;
+-                                                    }
+-                                                }
+-                                            }
+-                                            if (!tfsxml_enter(&p)) {
+-                                                for (;;) {
+-                                                    if (tfsxml_next(&p, &v)) 
+-                                                        break;
+-                                                    if (!tfsxml_strcmp_charp(v, "tc")) {
+-                                                        for (;;) {
+-                                                            if (tfsxml_attr(&p, &a, &v)) 
+-                                                                break;
+-                                                            if (!tfsxml_strcmp_charp(a, "v")) {
+-                                                                if (v.len == 11) {
+-                                                                    values[values[0]]=
+-                                                                      ((uint64_t)v.buf[0] - '0') << 56
+-                                                                    | ((uint64_t)v.buf[1] - '0') << 48
+-                                                                    | ((uint64_t)v.buf[3] - '0') << 40
+-                                                                    | ((uint64_t)v.buf[4] - '0') << 32
+-                                                                    | ((uint64_t)v.buf[6] - '0') << 24
+-                                                                    | ((uint64_t)v.buf[7] - '0') << 16
+-                                                                    | ((uint64_t)v.buf[8] == '?' ? 1 : 0) << 10
+-                                                                    | ((uint64_t)v.buf[9] - '0') <<  8
+-                                                                    | ((uint64_t)v.buf[10] - '0')     ;
+-                                                                    values[0]++;
+-                                                                }
+-                                                            }
+-                                                        }
+-                                                    }
+-                                                }
+-                                            }
+-                                            ebml_master mapping_master = start_ebml_master(pb, MATROSKA_ID_TRACKBLKADDMAPPING, 8);
+-                                            put_ebml_uint(pb, MATROSKA_ID_BLKADDIDTYPE,
+-                                                          121);
+-                                            put_ebml_uint(pb, MATROSKA_ID_BLKADDIDVALUE,
+-                                                          101 + timecodes_pos);
+-                                            end_ebml_master(pb, mapping_master);
+-                                            track->timecodes[timecodes_pos++] = values;
+-                                            static const char* tc_string_template = "00:00:00:00";
+-                                            if (values[0] > 2) {
+-                                                char tc_string[12];
+-                                                char tc_string2[12];
+-                                                uint64_t value2 = values[values[0] - 1];
+-                                                memcpy (tc_string, tc_string_template, 12);
+-                                                memcpy (tc_string2, tc_string_template, 12);
+-                                                tc_string[ 0] += (values[2] >> 56) & 0xFF;
+-                                                tc_string[ 1] += (values[2] >> 48) & 0xFF;
+-                                                tc_string[ 3] += (values[2] >> 40) & 0xFF;
+-                                                tc_string[ 4] += (values[2] >> 32) & 0xFF;
+-                                                tc_string[ 6] += (values[2] >> 24) & 0xFF;
+-                                                tc_string[ 7] += (values[2] >> 16) & 0xFF;
+-                                                if ((values[2] >> 10) & 1)
+-                                                    tc_string[ 8] = ';';
+-                                                tc_string[ 9] += (values[2] >>  8) & 0x3F;
+-                                                tc_string[10] += (values[2]      ) & 0xFF;
+-                                                tc_string2[ 0] += (value2 >> 56) & 0xFF;
+-                                                tc_string2[ 1] += (value2 >> 48) & 0xFF;
+-                                                tc_string2[ 3] += (value2 >> 40) & 0xFF;
+-                                                tc_string2[ 4] += (value2 >> 32) & 0xFF;
+-                                                tc_string2[ 6] += (value2 >> 24) & 0xFF;
+-                                                tc_string2[ 7] += (value2 >> 16) & 0xFF;
+-                                                if ((value2 >> 10) & 1)
+-                                                    tc_string2[ 8] = ';';
+-                                                tc_string2[ 9] += (value2 >>  8) & 0x3F;
+-                                                tc_string2[10] += (value2      ) & 0xFF;
+-                                                av_log(s, AV_LOG_INFO, "Media time code %i: %s%s%s\n", (int)timecodes_pos, tc_string, values[0] == 3 ? " (stripped)" : " - ", values[0] == 3 ? "" : tc_string2);
+-                                            } else {
+-                                                av_log(s, AV_LOG_WARNING, "Media time code %i: stream detected but no time code detected.\n", (int)timecodes_pos);
+-                                            }
+-                                        }
+-                                    }
+-                                    tfsxml_leave(&p);
+-                                    break;
+-                                }
+-                            }
+-                        }
+-                    }
+-                }
+-                track->timecodes[timecodes_pos] = NULL;
+-                free(buffer);
+-                fclose (f);
+-            }
+-        }
+-     }
++    if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
++        ebml_master mapping_master = start_ebml_master(pb, MATROSKA_ID_TRACKBLKADDMAPPING, 8);
++        put_ebml_uint(pb, MATROSKA_ID_BLKADDIDTYPE,
++                      MATROSKA_BLOCK_ADD_ID_TYPE_SMPTE_12M);
++        put_ebml_string(pb, MATROSKA_ID_BLKADDIDNAME, "SMPTE ST 12-1 timecode");
++        put_ebml_uint(pb, MATROSKA_ID_BLKADDIDVALUE,
++                      MATROSKA_BLOCK_ADD_ID_SMPTE_12M);
++        end_ebml_master(pb, mapping_master);
++        put_ebml_uint(pb, MATROSKA_ID_TRACKMAXBLKADDID, 121);
++}
+     else if (IS_SEEKABLE(s->pb, mkv)) {
+         track->blockadditionmapping_offset = avio_tell(pb);
+         // We can't know at this point if there will be a block with BlockAdditions, so
+@@ -3982,7 +3849,6 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+                            int force_blockgroup, int64_t relative_packet_pos)
+ {
+     uint8_t t35_buf[6 + AV_HDR_PLUS_MAX_PAYLOAD_SIZE];
+-    uint8_t timecode_buf[100][8];
+     uint8_t *side_data;
+     size_t side_data_size;
+     uint64_t additional_id;
+@@ -4064,22 +3930,15 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+                                           MATROSKA_BLOCK_ADD_ID_ITU_T_T35);
+         }
+     }
+-    if (track->timecodes) {
+-        size_t timecodes_pos = 0;
+-        for (;;) {
+-            if (!track->timecodes[timecodes_pos])
+-                break;
+-            if (track->timecodes[timecodes_pos][1]<track->timecodes[timecodes_pos][0]) {
+-                uint8_t *payload = timecode_buf[timecodes_pos];
+ 
+-                bytestream_put_be64(&payload, track->timecodes[timecodes_pos][track->timecodes[timecodes_pos][1]]);
+-
+-                mkv_write_blockadditional(&writer, timecode_buf[timecodes_pos], 8, 101 + timecodes_pos);
+-                track->max_blockaddid = FFMAX(track->max_blockaddid, 121);
+-
+-                track->timecodes[timecodes_pos][1]++;
+-            }
+-            timecodes_pos++;
++    // Extract timecode from side data and write as BlockAdditional
++    if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
++        side_data = av_packet_get_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, &side_data_size);
++        if (side_data && side_data_size >= sizeof(uint64_t) * 2) {
++            uint8_t* tc64_buf = malloc(sizeof(uint64_t));
++            AV_WB64(tc64_buf, *((uint64_t*)(side_data + sizeof(uint64_t))));
++            mkv_write_blockadditional(&writer, tc64_buf, sizeof(uint64_t), 101);
++            track->max_blockaddid = FFMAX(track->max_blockaddid, MATROSKA_BLOCK_ADD_ID_SMPTE_12M);
+         }
+     }
+ 
+@@ -4756,7 +4615,6 @@ static const AVOption options[] = {
+     { "infer", "for each track type, mark each track of disposition default as default; if none exists, mark the first track as default", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_INFER }, 0, 0, FLAGS, .unit = "default_mode" },
+     { "infer_no_subs", "for each track type, mark each track of disposition default as default; for audio and video: if none exists, mark the first track as default", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_INFER_NO_SUBS }, 0, 0, FLAGS, .unit = "default_mode" },
+     { "passthrough", "use the disposition flag as-is", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_PASSTHROUGH }, 0, 0, FLAGS, .unit = "default_mode" },
+-    { "mediatimecode", "MediaTimecode XML file name", OFFSET(mediatimecode), AV_OPT_TYPE_STRING, { .str = NULL },  0, 0, FLAGS },
+     { NULL },
+ };
+ 
+diff --git a/libavutil/timecode.c b/libavutil/timecode.c
+index bca16b6ac2..81fb66a5e4 100644
+--- a/libavutil/timecode.c
++++ b/libavutil/timecode.c
+@@ -243,3 +243,107 @@ int av_timecode_init_from_string(AVTimecode *tc, AVRational rate, const char *st
+ 
+     return av_timecode_init_from_components(tc, rate, flags, hh, mm, ss, ff, log_ctx);
+ }
++
++static int bcd_to_int(int bcd) {
++    return ((bcd >> 4) & 0xF) * 10 + (bcd & 0xF);
++}
++
++uint64_t av_timecode_expand_to_64bit(uint32_t tc32)
++{
++    uint64_t tc64 = 0;
++
++    int hours_bcd   =  tc32        & 0x3F;  // bits 0-5
++    int bgf1        = (tc32 >> 6)  & 0x1;   // bit 6
++    int bgf2        = (tc32 >> 7)  & 0x1;   // bit 7
++    int minutes_bcd = (tc32 >> 8)  & 0x7F;  // bits 8-14
++    int bgf0        = (tc32 >> 15) & 0x1;   // bit 15
++    int seconds_bcd = (tc32 >> 16) & 0x7F;  // bits 16-22
++    int frames_bcd  = (tc32 >> 24) & 0x3F;  // bits 24-29
++    int drop        = (tc32 >> 30) & 0x1;   // bit 30
++    int color       = (tc32 >> 31) & 0x1;   // bit 31
++
++    int hours   = bcd_to_int(hours_bcd);
++    int minutes = bcd_to_int(minutes_bcd);
++    int seconds = bcd_to_int(seconds_bcd);
++    int frames  = bcd_to_int(frames_bcd);
++
++    // Units and tens
++    int uh = hours   % 10, th = hours   / 10;
++    int um = minutes % 10, tm = minutes / 10;
++    int us = seconds % 10, ts = seconds / 10;
++    int uf = frames  % 10, tf = frames  / 10;
++
++    // Assign bits as per RFC 5484 layout
++    tc64 |= (uint64_t)(uf & 0xF) << 0;   // Units of frames
++    tc64 |= 0                    << 4;   // First binary group
++    tc64 |= (uint64_t)(tf & 0x3) << 8;   // Tens of frames (2 bits)
++    tc64 |= (uint64_t)drop       << 10;  // Drop frame flag
++    tc64 |= (uint64_t)color      << 11;  // Color frame flag
++    tc64 |= 0                    << 12;  // Second binary group
++
++    tc64 |= (uint64_t)(us & 0xF) << 16;  // Units of seconds
++    tc64 |= 0                    << 20;  // Third binary group
++    tc64 |= (uint64_t)(ts & 0x7) << 24;  // Tens of seconds
++    tc64 |= 0                    << 27;  // Polarity correction
++    tc64 |= 0                    << 28;  // Fourth binary group
++
++    tc64 |= (uint64_t)(um & 0xF) << 32;  // Units of minutes
++    tc64 |= (uint64_t)0          << 36;  // Fifth binary group
++    tc64 |= (uint64_t)(tm & 0x7) << 40;  // Tens of minutes
++    tc64 |= (uint64_t)bgf0       << 43;  // BGF0
++    tc64 |= (uint64_t)0          << 44;  // Sixth binary group
++
++    tc64 |= (uint64_t)(uh & 0xF) << 48;  // Units of hours
++    tc64 |= (uint64_t)0          << 52;  // Seventh binary group
++    tc64 |= (uint64_t)(th & 0x3) << 56;  // Tens of hours
++    tc64 |= (uint64_t)bgf1       << 58;  // BGF1
++    tc64 |= (uint64_t)bgf2       << 59;  // BGF2
++    tc64 |= (uint64_t)0          << 60;  // Eighth binary group
++
++    return tc64;
++}
++
++static int int_to_bcd(int val) {
++    return ((val / 10) << 4) | (val % 10);
++}
++
++uint32_t av_timecode_parse_from_64bit(uint64_t tc64)
++{
++    uint32_t tc32 = 0;
++
++    int uf   = (tc64 >> 0)  & 0xF;   // Ones of frames
++    int tf   = (tc64 >> 8)  & 0x3;   // Tens of frames
++    int drop = (tc64 >> 10) & 0x1;
++    int color= (tc64 >> 11) & 0x1;
++
++    int us   = (tc64 >> 16) & 0xF;   // Ones of seconds
++    int ts   = (tc64 >> 24) & 0x7;   // Tens of seconds
++
++    int um   = (tc64 >> 32) & 0xF;   // Ones of minutes
++    int tm   = (tc64 >> 40) & 0x7;   // Tens of minutes
++    int bgf0 = (tc64 >> 43) & 0x1;
++
++    int uh   = (tc64 >> 48) & 0xF;   // Ones of hours
++    int th   = (tc64 >> 56) & 0x3;   // Tens of hours
++    int bgf1 = (tc64 >> 58) & 0x1;
++    int bgf2 = (tc64 >> 59) & 0x1;
++
++    int hours   = int_to_bcd(th * 10 + uh);
++    int minutes = int_to_bcd(tm * 10 + um);
++    int seconds = int_to_bcd(ts * 10 + us);
++    int frames  = int_to_bcd(tf * 10 + uf);
++
++    // Assemble tc32 using the FFmpeg SMPTE 32-bit format
++    tc32 |= (hours & 0x3F)        << 0;   // bits 0-5: hours (BCD)
++    tc32 |= (bgf1  & 0x1)         << 6;   // bit 6: BGF1
++    tc32 |= (bgf2  & 0x1)         << 7;   // bit 7: BGF2 (or FIELD)
++    tc32 |= (minutes & 0x7F)      << 8;   // bits 8-14: minutes (BCD)
++    tc32 |= (bgf0  & 0x1)         << 15;  // bit 15: BGF0
++    tc32 |= (seconds & 0x7F)      << 16;  // bits 16-22: seconds (BCD)
++    tc32 |= 0                     << 23;  // bit 23: FIELD (set to 0)
++    tc32 |= (frames  & 0x3F)      << 24;  // bits 24-29: frames (BCD)
++    tc32 |= (drop    & 0x1)       << 30;  // bit 30: drop frame flag
++    tc32 |= (color   & 0x1)       << 31;  // bit 31: color frame flag
++
++    return tc32;
++}
+diff --git a/libavutil/timecode.h b/libavutil/timecode.h
+index fe0fc83576..81713a9adf 100644
+--- a/libavutil/timecode.h
++++ b/libavutil/timecode.h
+@@ -196,4 +196,26 @@ int av_timecode_init_from_string(AVTimecode *tc, AVRational rate, const char *st
+  */
+ int av_timecode_check_frame_rate(AVRational rate);
+ 
++/**
++ * Convert a 32-bit SMPTE 12M timecode to 64-bit SMPTE 12M/RFC 5484 format.
++ *
++ * This maps the timecode as described in RFC 5484 Section 6.2,
++ * expanding BCD-encoded time values into bit fields without the sync word.
++ *
++ * @param tc32  The 32-bit SMPTE timecode (from DeckLink or av_timecode_get_smpte)
++ * @return      The 64-bit SMPTE 12M timecode format (without sync word)
++ */
++uint64_t av_timecode_expand_to_64bit(uint32_t tc32);
++
++/**
++ * Convert a 64-bit SMPTE 12M/RFC 5484 timecode to 32-bit SMPTE format.
++ *
++ * This reconstructs the packed 32-bit SMPTE timecode (DeckLink-style or FFmpeg output)
++ * from a full 64-bit representation.
++ *
++ * @param tc64 The 64-bit timecode value in RFC 5484 / SMPTE 12M format (without sync word)
++ * @return     A 32-bit SMPTE timecode
++ */
++uint32_t av_timecode_parse_from_64bit(uint64_t tc64);
++
+ #endif /* AVUTIL_TIMECODE_H */
+-- 
+2.46.0.windows.1
+
