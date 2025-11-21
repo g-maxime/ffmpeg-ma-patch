@@ -1,0 +1,29 @@
+From b5b655a52944a5d13dbf454b493826bd004f1701 Mon Sep 17 00:00:00 2001
+From: Jerome Martinez <jerome@mediaarea.net>
+Date: Wed, 27 Aug 2025 13:36:36 +0200
+Subject: [PATCH 5/8] decklink_dec: store timecode in 64-bit RFC 5484 format
+
+---
+ libavdevice/decklink_dec.cpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/libavdevice/decklink_dec.cpp b/libavdevice/decklink_dec.cpp
+index 418701e4e0..1dacf1b129 100644
+--- a/libavdevice/decklink_dec.cpp
++++ b/libavdevice/decklink_dec.cpp
+@@ -826,9 +826,9 @@ HRESULT decklink_input_callback::VideoInputFrameArrived(
+                         uint8_t* packed_metadata;
+ 
+                         if (av_cmp_q(ctx->video_st->r_frame_rate, av_make_q(60, 1)) < 1) {
+-                            uint32_t tc_data = av_timecode_get_smpte_from_framenum(&tcr, 0);
+-                            int size = sizeof(uint32_t) * 4;
+-                            uint32_t *sd = (uint32_t *)av_packet_new_side_data(&pkt, AV_PKT_DATA_S12M_TIMECODE, size);
++                            uint64_t tc_data = av_timecode_expand_to_64bit(av_timecode_get_smpte_from_framenum(&tcr, 0));
++                            int size = sizeof(uint64_t) * 4;
++                            uint64_t *sd = (uint64_t *)av_packet_new_side_data(&pkt, AV_PKT_DATA_S12M_TIMECODE, size);
+ 
+                             if (sd) {
+                                 *sd       = 1;       // one TC
+-- 
+2.46.0.windows.1
+

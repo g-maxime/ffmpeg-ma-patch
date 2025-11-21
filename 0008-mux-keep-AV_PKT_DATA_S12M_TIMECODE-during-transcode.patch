@@ -1,0 +1,228 @@
+From 9d74a67cfbf78b5f4a39e94288d02202a7710e2d Mon Sep 17 00:00:00 2001
+From: Jerome Martinez <jerome@mediaarea.net>
+Date: Fri, 21 Nov 2025 12:38:04 +0100
+Subject: [PATCH 8/8] mux: keep AV_PKT_DATA_S12M_TIMECODE during transcode
+
+---
+ fftools/ffmpeg_demux.c | 76 ++++++++++++++++++++++++++++++++++++++++++
+ fftools/ffmpeg_mux.c   | 63 ++++++++++++++++++++++++++++++++++
+ fftools/ffmpeg_utils.h | 23 +++++++++++++
+ 3 files changed, 162 insertions(+)
+
+diff --git a/fftools/ffmpeg_demux.c b/fftools/ffmpeg_demux.c
+index cb79dd7611..e5cd438a7e 100644
+--- a/fftools/ffmpeg_demux.c
++++ b/fftools/ffmpeg_demux.c
+@@ -721,6 +721,69 @@ static int demux_thread_init(DemuxThreadContext *dt)
+     return 0;
+ }
+ 
++static int side_data_copy(const AVPacket *pkt, SideDataStorage *storage)
++{
++    if (pkt->side_data_elems == 0)
++        return 0;
++
++    storage->nb_elems = pkt->side_data_elems;
++    storage->types = av_malloc_array(storage->nb_elems, sizeof(storage->types[0]));
++    storage->datas = av_malloc_array(storage->nb_elems, sizeof(storage->datas[0]));
++    storage->sizes = av_malloc_array(storage->nb_elems, sizeof(storage->sizes[0]));
++    if (!storage->types || !storage->datas || !storage->sizes) {
++        return AVERROR(ENOMEM);
++    }
++
++    for (int i = 0; i < storage->nb_elems; i++) {
++        const AVPacketSideData *sd = &pkt->side_data[i];
++        storage->types[i] = sd->type;
++        storage->sizes[i] = sd->size;
++        storage->datas[i] = av_malloc(sd->size);
++        if (!storage->datas[i])
++            return AVERROR(ENOMEM);
++        memcpy(storage->datas[i], sd->data, sd->size);
++    }
++
++    return 0;
++}
++
++static void side_data_queue_init(SideDataQueue *q)
++{
++    q->head = q->tail = NULL;
++    pthread_mutex_init(&q->lock, NULL);
++    pthread_cond_init(&q->cond, NULL);
++}
++
++static void side_data_queue_push(SideDataQueue *q, const SideDataStorage *sd)
++{
++    SideDataNode *node = av_malloc(sizeof(SideDataNode));
++    node->sd = *sd;
++    node->next = NULL;
++
++    pthread_mutex_lock(&q->lock);
++    if (q->tail)
++        q->tail->next = node;
++    else
++        q->head = node;
++    q->tail = node;
++    pthread_cond_signal(&q->cond);
++    pthread_mutex_unlock(&q->lock);
++}
++
++static int side_data_queue(const AVPacket *pkt, SideDataQueue *queues)
++{
++    SideDataStorage sd = {0};
++    int ret = side_data_copy(pkt, &sd);
++    if (ret < 0)
++        return ret;
++
++    side_data_queue_push(&queues[pkt->stream_index], &sd);
++
++    return 0;
++}
++
++SideDataQueue sd_queues[MAX_STREAMS];
++
+ static int input_thread(void *arg)
+ {
+     Demuxer   *d = arg;
+@@ -741,11 +804,24 @@ static int input_thread(void *arg)
+     d->read_started    = 1;
+     d->wallclock_start = av_gettime_relative();
+ 
++    int nb_streams = f->ctx->nb_streams;
++    for (int i = 0; i < nb_streams; i++)
++        side_data_queue_init(&sd_queues[i]);
++
+     while (1) {
+         DemuxStream *ds;
+         unsigned send_flags = 0;
+ 
+         ret = av_read_frame(f->ctx, dt.pkt_demux);
++        if (dt.pkt_demux->side_data_elems) {
++            AVStream *st = f->ctx->streams[dt.pkt_demux->stream_index];
++            if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
++                int ret = side_data_queue(dt.pkt_demux, sd_queues);
++                if (ret < 0) {
++                    av_log(d, AV_LOG_ERROR, "Error during side data queue: %s\n", av_err2str(ret));
++                }
++            }
++        }
+ 
+         if (ret == AVERROR(EAGAIN)) {
+             av_usleep(10000);
+diff --git a/fftools/ffmpeg_mux.c b/fftools/ffmpeg_mux.c
+index 25f66dd185..40bcbf40f6 100644
+--- a/fftools/ffmpeg_mux.c
++++ b/fftools/ffmpeg_mux.c
+@@ -206,6 +206,67 @@ static int mux_fixup_ts(Muxer *mux, MuxStream *ms, AVPacket *pkt)
+     return 0;
+ }
+ 
++static int side_data_inject(AVPacket *pkt, const SideDataStorage *storage)
++{
++    for (int i = 0; i < storage->nb_elems; i++) {
++        if (storage->types[i] != AV_PKT_DATA_S12M_TIMECODE)
++            continue;
++
++        uint8_t *dst = av_packet_new_side_data(pkt, storage->types[i], storage->sizes[i]);
++        if (!dst)
++            return AVERROR(ENOMEM);
++        memcpy(dst, storage->datas[i], storage->sizes[i]);
++    }
++
++    return 0;
++}
++
++static void side_data_free(SideDataStorage *storage)
++{
++    for (int i = 0; i < storage->nb_elems; i++)
++        av_free(storage->datas[i]);
++    av_free(storage->datas);
++    av_free(storage->types);
++    av_free(storage->sizes);
++
++    memset(storage, 0, sizeof(*storage));
++}
++
++static int side_data_queue_pop(SideDataQueue *q, SideDataStorage *out)
++{
++    pthread_mutex_lock(&q->lock);
++
++    if (!q->head) {
++        pthread_mutex_unlock(&q->lock);
++        return 0;
++    }
++
++    SideDataNode *node = q->head;
++    q->head = node->next;
++    if (!q->head)
++        q->tail = NULL;
++
++    *out = node->sd;
++    av_free(node);
++
++    pthread_mutex_unlock(&q->lock);
++    return 1;
++}
++
++static int side_data_fill(AVPacket *pkt, SideDataQueue *queues)
++{
++    SideDataStorage sd = {0};
++    int has_data = side_data_queue_pop(&queues[pkt->stream_index], &sd);
++    if (!has_data) {
++        return 0;
++    }
++
++    int ret = side_data_inject(pkt, &sd);
++    side_data_free(&sd);
++
++    return ret;
++}
++
+ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
+ {
+     MuxStream *ms = ms_from_ost(ost);
+@@ -214,6 +275,8 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
+     uint64_t frame_num;
+     int ret;
+ 
++    side_data_fill(pkt, sd_queues);
++
+     fs = filesize(s->pb);
+     atomic_store(&mux->last_filesize, fs);
+     if (fs >= mux->limit_filesize) {
+diff --git a/fftools/ffmpeg_utils.h b/fftools/ffmpeg_utils.h
+index 9ca3afffa0..19a5f974f3 100644
+--- a/fftools/ffmpeg_utils.h
++++ b/fftools/ffmpeg_utils.h
+@@ -27,6 +27,29 @@
+ 
+ #include "libavcodec/packet.h"
+ 
++
++typedef struct SideDataStorage {
++    enum AVPacketSideDataType *types;
++    uint8_t **datas;
++    int *sizes;
++    int nb_elems;
++} SideDataStorage;
++
++typedef struct SideDataNode {
++    SideDataStorage sd;
++    struct SideDataNode *next;
++} SideDataNode;
++
++typedef struct SideDataQueue {
++    SideDataNode *head;
++    SideDataNode *tail;
++    pthread_mutex_t lock;
++    pthread_cond_t cond;
++} SideDataQueue;
++
++#define MAX_STREAMS 64   // compatible pour presque tous les containers
++extern SideDataQueue sd_queues[MAX_STREAMS];
++
+ typedef struct Timestamp {
+     int64_t    ts;
+     AVRational tb;
+-- 
+2.46.0.windows.1
+
