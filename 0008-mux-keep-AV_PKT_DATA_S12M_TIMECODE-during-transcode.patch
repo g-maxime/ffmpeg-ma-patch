@@ -196,8 +196,8 @@ index 9ca3afffa0..19a5f974f3 100644
 @@ -27,6 +27,29 @@
  
  #include "libavcodec/packet.h"
++#include "libavutil/thread.h"
  
-+
 +typedef struct SideDataStorage {
 +    enum AVPacketSideDataType *types;
 +    uint8_t **datas;
