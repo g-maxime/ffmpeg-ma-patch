@@ -11,9 +11,9 @@ diff --git a/libavcodec/dpx.c b/libavcodec/dpx.c
 index 80616d98a2..1140954f6b 100644
 --- a/libavcodec/dpx.c
 +++ b/libavcodec/dpx.c
-@@ -613,6 +613,7 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *p,
- 
+@@ -615,6 +615,7 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *p,
      // Some devices do not pad 10bit samples to whole 32bit words per row
+     dpx->unpadded_10bit = 0;
      if (!memcmp(input_device, "Scanity", 7) ||
 +        !memcmp(creator, "DIAMANT-Film", 12) ||
          !memcmp(creator, "Lasergraphics Inc.", 18)) {
