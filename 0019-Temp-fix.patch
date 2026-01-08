@@ -1,0 +1,142 @@
+From 2fcc6793001c9fe2c5c106347fae20dc55315cf0 Mon Sep 17 00:00:00 2001
+From: Maxime Gervais <gervais.maxime@gmail.com>
+Date: Fri, 9 Jan 2026 00:03:10 +0100
+Subject: [PATCH] Temp fix
+
+---
+ libavformat/avformat.c | 43 ++++++++++++++++++++++++++++++++++++++++++
+ libavformat/avformat.h |  2 ++
+ libavutil/timecode.c   | 43 ------------------------------------------
+ libavutil/timecode.h   |  2 --
+ 4 files changed, 45 insertions(+), 45 deletions(-)
+
+diff --git a/libavformat/avformat.c b/libavformat/avformat.c
+index ee3f7ee..2d3e8df 100644
+--- a/libavformat/avformat.c
++++ b/libavformat/avformat.c
+@@ -875,3 +875,46 @@ int ff_format_io_close(AVFormatContext *s, AVIOContext **pb)
+     *pb = NULL;
+     return ret;
+ }
++
++int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title)
++{
++    const int add_block_timecode_count = 4; //TODO
++    size_t sd_size = 0;
++    uint8_t *sd = av_packet_get_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, &sd_size);
++    uint8_t count = sd ? *((uint8_t*) (sd + 4)) : 0;
++    if (!count) {
++        sd_size = 8 + add_block_timecode_count * (8 + 4 + 16);
++        sd = av_packet_new_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, sd_size);
++        uint32_t *sd_allocated = (uint32_t*)sd;
++        *sd_allocated = sd_size;
++        uint8_t *item_size = sd + 5;
++        *item_size = 8 + 4 + 16;
++        count = 0;
++    }
++
++    if (count >= add_block_timecode_count) {
++        av_log(ctx, AV_LOG_DEBUG, "There are more timecodes in the block than the count indicated in the track header, extra timecodes are ignored.\n");
++    }
++    else if (sd) {
++        av_log(ctx, AV_LOG_DEBUG, "Reading SMPTE timecode from BlockAdditional: 0x%016lX (RFC 5484)\n", tc);
++
++        // header: 0-3 allocated size; 4 count; 5 byte size per item; 6 flags; 7 reserved
++        // flags: 0 id present; 1 title present
++        // content: 8 bytes tc; 4 bytes id; 16 bytes 0 terminated or 16 bytes UTF8 title
++
++        count++;
++        uint8_t *sd_count = (uint8_t*) (sd + 4);
++        *sd_count = count;
++        uint8_t *sd_base = sd + 8 + (8 + 4 + 16) * (count - 1);
++        uint64_t *sd_tc = (uint64_t*)sd_base;
++        uint32_t *sd_id = (uint32_t*)(sd_base + 8);
++        char* sd_title = (char*)(sd_base + 8 + 4);
++        *sd_tc = tc;
++        *sd_id = id;
++        size_t title_size = strlen(title);
++        memcpy(sd_title, title, title_size);
++        memset(sd_title + title_size, 0, 16 - title_size);
++    }
++    
++    return 0;
++}
+diff --git a/libavformat/avformat.h b/libavformat/avformat.h
+index bd34132..a568c21 100644
+--- a/libavformat/avformat.h
++++ b/libavformat/avformat.h
+@@ -3012,6 +3012,8 @@ AVRational av_stream_get_codec_timebase(const AVStream *st);
+ #endif
+ 
+ 
++int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title);
++
+ /**
+  * @}
+  */
+diff --git a/libavutil/timecode.c b/libavutil/timecode.c
+index 97d7adf..341a4fe 100644
+--- a/libavutil/timecode.c
++++ b/libavutil/timecode.c
+@@ -347,46 +347,3 @@ uint32_t av_timecode_parse_from_64bit(uint64_t tc64)
+ 
+     return tc32;
+ }
+-
+-int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title)
+-{
+-    const int add_block_timecode_count = 4; //TODO
+-    size_t sd_size = 0;
+-    uint8_t *sd = av_packet_get_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, &sd_size);
+-    uint8_t count = sd ? *((uint8_t*) (sd + 4)) : 0;
+-    if (!count) {
+-        sd_size = 8 + add_block_timecode_count * (8 + 4 + 16);
+-        sd = av_packet_new_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, sd_size);
+-        uint32_t *sd_allocated = (uint32_t*)sd;
+-        *sd_allocated = sd_size;
+-        uint8_t *item_size = sd + 5;
+-        *item_size = 8 + 4 + 16;
+-        count = 0;
+-    }
+-
+-    if (count >= add_block_timecode_count) {
+-        av_log(ctx, AV_LOG_DEBUG, "There are more timecodes in the block than the count indicated in the track header, extra timecodes are ignored.\n");
+-    }
+-    else if (sd) {
+-        av_log(ctx, AV_LOG_DEBUG, "Reading SMPTE timecode from BlockAdditional: 0x%016lX (RFC 5484)\n", tc);
+-
+-        // header: 0-3 allocated size; 4 count; 5 byte size per item; 6 flags; 7 reserved
+-        // flags: 0 id present; 1 title present
+-        // content: 8 bytes tc; 4 bytes id; 16 bytes 0 terminated or 16 bytes UTF8 title
+-
+-        count++;
+-        uint8_t *sd_count = (uint8_t*) (sd + 4);
+-        *sd_count = count;
+-        uint8_t *sd_base = sd + 8 + (8 + 4 + 16) * (count - 1);
+-        uint64_t *sd_tc = (uint64_t*)sd_base;
+-        uint32_t *sd_id = (uint32_t*)(sd_base + 8);
+-        char* sd_title = (char*)(sd_base + 8 + 4);
+-        *sd_tc = tc;
+-        *sd_id = id;
+-        size_t title_size = strlen(title);
+-        memcpy(sd_title, title, title_size);
+-        memset(sd_title + title_size, 0, 16 - title_size);
+-    }
+-    
+-    return 0;
+-}
+\ No newline at end of file
+diff --git a/libavutil/timecode.h b/libavutil/timecode.h
+index b1f140c..6c4af1a 100644
+--- a/libavutil/timecode.h
++++ b/libavutil/timecode.h
+@@ -220,6 +220,4 @@ uint64_t av_timecode_expand_to_64bit(uint32_t tc32);
+  */
+ uint32_t av_timecode_parse_from_64bit(uint64_t tc64);
+ 
+-int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title);
+-
+ #endif /* AVUTIL_TIMECODE_H */
+-- 
+2.52.0
+
