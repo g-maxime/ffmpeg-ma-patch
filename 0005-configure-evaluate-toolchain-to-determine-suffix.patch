@@ -8,13 +8,13 @@ Subject: [PATCH 05/18] configure evaluate toolchain to determine suffix
  1 file changed, 6 insertions(+), 2 deletions(-)
 
 diff --git a/configure b/configure
-index 998b0292b8..9d24069a90 100755
+index b09e9d0436..032266f3c2 100755
 --- a/configure
 +++ b/configure
-@@ -4929,11 +4929,15 @@ fi
+@@ -4752,11 +4752,15 @@ fi
  exesuf() {
      case $1 in
-         mingw32*|mingw64*|msys*|win32|win64|cygwin*|*-dos|freedos|opendos|os/2*|symbian|windows_nt) echo .exe ;;
+         mingw32*|mingw64*|msys*|win32|win64|cygwin*|*-dos|freedos|opendos|os/2*|symbian) echo .exe ;;
 +        *)
 +            case $2 in
 +                msvc) echo .exe ;;
