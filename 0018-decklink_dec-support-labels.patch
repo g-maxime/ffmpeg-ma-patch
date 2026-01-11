@@ -1,25 +1,24 @@
-From c311f071ccd1fa3d1a178af9ae60ee84d3a9a86e Mon Sep 17 00:00:00 2001
+From e760b99e8d4c137b7765e381eaf233b57f833193 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Thu, 4 Dec 2025 17:31:32 +0100
-Subject: [PATCH 18/18] decklink_dec: support labels
+Subject: [PATCH] decklink_dec: support labels
 
 ---
  fftools/ffprobe.c            |  27 +++++++--
  libavdevice/decklink_dec.cpp |  59 +++++++++++++------
- libavformat/avformat.c       |  43 ++++++++++++++
- libavformat/avformat.h       |   2 +
- libavformat/dump.c           |   8 +--
+ libavformat/dump.c           |   4 +-
  libavformat/matroska.h       |   1 +
  libavformat/matroskadec.c    |  72 +++++++++++++++--------
  libavformat/matroskaenc.c    | 111 ++++++++++++++++++++++++++++++++---
- libavutil/timecode.h         |   2 +
- 9 files changed, 267 insertions(+), 58 deletions(-)
+ libavutil/timecode.c         |  43 ++++++++++++++
+ libavutil/timecode.h         |   4 ++
+ 8 files changed, 265 insertions(+), 56 deletions(-)
 
 diff --git a/fftools/ffprobe.c b/fftools/ffprobe.c
-index a9435138c2..14a4663db3 100644
+index 92122e5277..b52da6e58a 100644
 --- a/fftools/ffprobe.c
 +++ b/fftools/ffprobe.c
-@@ -1014,6 +1014,7 @@ static void print_pkt_side_data(AVTextFormatContext *tfc,
+@@ -969,6 +969,7 @@ static void print_pkt_side_data(AVTextFormatContext *tfc,
      const char *name = av_packet_side_data_name(sd->type);
  
      avtext_print_section_header(tfc, sd, id_data);
@@ -27,7 +26,7 @@ index a9435138c2..14a4663db3 100644
      print_str("side_data_type", name ? name : "unknown");
      if (sd->type == AV_PKT_DATA_DISPLAYMATRIX && sd->size >= 9*4) {
          print_displaymatrix(tfc, (const int32_t*)sd->data);
-@@ -1358,14 +1359,32 @@ static void print_frame_side_data(AVTextFormatContext *tfc,
+@@ -1301,14 +1302,32 @@ static void print_frame_side_data(AVTextFormatContext *tfc,
              av_timecode_make_mpeg_tc_string(tcbuf, *(int64_t *)(sd->data));
              print_str("timecode", tcbuf);
          } else if (sd->type == AV_FRAME_DATA_S12M_TIMECODE && sd->size >= 8) {
@@ -65,15 +64,15 @@ index a9435138c2..14a4663db3 100644
              }
              avtext_print_section_footer(tfc);
 diff --git a/libavdevice/decklink_dec.cpp b/libavdevice/decklink_dec.cpp
-index 370efa9a4b..f20e3175fa 100644
+index 18596af2c2..4b6e7c56db 100644
 --- a/libavdevice/decklink_dec.cpp
 +++ b/libavdevice/decklink_dec.cpp
-@@ -734,35 +734,49 @@ static int get_bmd_timecode(AVFormatContext *avctx, AVTimecode *tc, AVRational f
+@@ -703,35 +703,49 @@ static int get_bmd_timecode(AVFormatContext *avctx, AVTimecode *tc, AVRational f
      return ret;
  }
  
--static int get_frame_timecode(AVFormatContext *avctx, decklink_ctx *ctx, AVTimecode *tc, IDeckLinkVideoInputFrame_v14_2_1 *videoFrame)
-+static int get_frame_timecode(AVFormatContext *avctx, decklink_ctx *ctx, AVTimecode *tc, uint8_t *tc_kind, IDeckLinkVideoInputFrame_v14_2_1 *videoFrame)
+-static int get_frame_timecode(AVFormatContext *avctx, decklink_ctx *ctx, AVTimecode *tc, IDeckLinkVideoInputFrame *videoFrame)
++static int get_frame_timecode(AVFormatContext *avctx, decklink_ctx *ctx, AVTimecode *tc, uint8_t *tc_kind, IDeckLinkVideoInputFrame *videoFrame)
  {
      AVRational frame_rate = ctx->video_st->r_frame_rate;
      int ret;
@@ -130,7 +129,7 @@ index 370efa9a4b..f20e3175fa 100644
         return count;
      }
      /* 50/60 fps content has alternating VITC1 and VITC2 timecode (see SMPTE ST
-@@ -878,7 +892,8 @@ HRESULT decklink_input_callback::VideoInputFrameArrived(
+@@ -847,7 +861,8 @@ HRESULT decklink_input_callback::VideoInputFrameArrived(
              // Handle Timecode (if requested)
              if (ctx->tc_format) {
                  AVTimecode tcr[8];
@@ -140,7 +139,7 @@ index 370efa9a4b..f20e3175fa 100644
                  if (count > 0) {
                      char tcstr[AV_TIMECODE_STR_SIZE];
                      const char *tc = av_timecode_make_string(&tcr[0], tcstr, 0);
-@@ -887,13 +902,23 @@ HRESULT decklink_input_callback::VideoInputFrameArrived(
+@@ -856,13 +871,23 @@ HRESULT decklink_input_callback::VideoInputFrameArrived(
                          uint8_t* packed_metadata;
  
                          if (av_cmp_q(ctx->video_st->r_frame_rate, av_make_q(60, 1)) < 1) {
@@ -168,75 +167,11 @@ index 370efa9a4b..f20e3175fa 100644
                              }
                          }
  
-diff --git a/libavformat/avformat.c b/libavformat/avformat.c
-index ee3f7ee1b2..2d3e8df97b 100644
---- a/libavformat/avformat.c
-+++ b/libavformat/avformat.c
-@@ -875,3 +875,46 @@ int ff_format_io_close(AVFormatContext *s, AVIOContext **pb)
-     *pb = NULL;
-     return ret;
- }
-+
-+int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title)
-+{
-+    const int add_block_timecode_count = 4; //TODO
-+    size_t sd_size = 0;
-+    uint8_t *sd = av_packet_get_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, &sd_size);
-+    uint8_t count = sd ? *((uint8_t*) (sd + 4)) : 0;
-+    if (!count) {
-+        sd_size = 8 + add_block_timecode_count * (8 + 4 + 16);
-+        sd = av_packet_new_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, sd_size);
-+        uint32_t *sd_allocated = (uint32_t*)sd;
-+        *sd_allocated = sd_size;
-+        uint8_t *item_size = sd + 5;
-+        *item_size = 8 + 4 + 16;
-+        count = 0;
-+    }
-+
-+    if (count >= add_block_timecode_count) {
-+        av_log(ctx, AV_LOG_DEBUG, "There are more timecodes in the block than the count indicated in the track header, extra timecodes are ignored.\n");
-+    }
-+    else if (sd) {
-+        av_log(ctx, AV_LOG_DEBUG, "Reading SMPTE timecode from BlockAdditional: 0x%016lX (RFC 5484)\n", tc);
-+
-+        // header: 0-3 allocated size; 4 count; 5 byte size per item; 6 flags; 7 reserved
-+        // flags: 0 id present; 1 title present
-+        // content: 8 bytes tc; 4 bytes id; 16 bytes 0 terminated or 16 bytes UTF8 title
-+
-+        count++;
-+        uint8_t *sd_count = (uint8_t*) (sd + 4);
-+        *sd_count = count;
-+        uint8_t *sd_base = sd + 8 + (8 + 4 + 16) * (count - 1);
-+        uint64_t *sd_tc = (uint64_t*)sd_base;
-+        uint32_t *sd_id = (uint32_t*)(sd_base + 8);
-+        char* sd_title = (char*)(sd_base + 8 + 4);
-+        *sd_tc = tc;
-+        *sd_id = id;
-+        size_t title_size = strlen(title);
-+        memcpy(sd_title, title, title_size);
-+        memset(sd_title + title_size, 0, 16 - title_size);
-+    }
-+    
-+    return 0;
-+}
-diff --git a/libavformat/avformat.h b/libavformat/avformat.h
-index bd34132e00..a568c217f0 100644
---- a/libavformat/avformat.h
-+++ b/libavformat/avformat.h
-@@ -3012,6 +3012,8 @@ AVRational av_stream_get_codec_timebase(const AVStream *st);
- #endif
- 
- 
-+int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title);
-+
- /**
-  * @}
-  */
 diff --git a/libavformat/dump.c b/libavformat/dump.c
-index 734a6e0bbf..ef52da76d7 100644
+index a5cdf0b45b..45e83c88e0 100644
 --- a/libavformat/dump.c
 +++ b/libavformat/dump.c
-@@ -431,7 +431,7 @@ static void dump_s12m_timecode(void *ctx, AVRational avg_frame_rate, const AVPac
+@@ -433,7 +433,7 @@ static void dump_s12m_timecode(void *ctx, AVRational avg_frame_rate, const AVPac
  {
      const uint32_t *tc = (const uint32_t *)sd->data;
  
@@ -245,7 +180,7 @@ index 734a6e0bbf..ef52da76d7 100644
          av_log(ctx, AV_LOG_ERROR, "invalid data\n");
          return;
      }
-@@ -475,15 +475,15 @@ static void dump_sidedata(void *ctx, const AVPacketSideData *side_data, int nb_s
+@@ -477,7 +477,7 @@ static void dump_sidedata(void *ctx, const AVPacketSideData *side_data, int nb_s
      int i;
  
      if (nb_side_data)
@@ -254,16 +189,6 @@ index 734a6e0bbf..ef52da76d7 100644
  
      for (i = 0; i < nb_side_data; i++) {
          const AVPacketSideData *sd = &side_data[i];
-         const char *name = av_packet_side_data_name(sd->type);
- 
--        av_log(ctx, log_level, "%s  ", indent);
-+        av_log(ctx, AV_LOG_ERROR, "%s  ", indent);
-         if (name)
--            av_log(ctx, log_level, "%s: ", name);
-+            av_log(ctx, AV_LOG_ERROR, "%s: ", name);
-         switch (sd->type) {
-         case AV_PKT_DATA_PARAM_CHANGE:
-             dump_paramchange(ctx, sd, log_level);
 diff --git a/libavformat/matroska.h b/libavformat/matroska.h
 index d78b33d4b2..84debcfd64 100644
 --- a/libavformat/matroska.h
@@ -277,7 +202,7 @@ index d78b33d4b2..84debcfd64 100644
  /* IDs in the seekhead master */
  #define MATROSKA_ID_SEEKENTRY  0x4DBB
 diff --git a/libavformat/matroskadec.c b/libavformat/matroskadec.c
-index 2c9408359c..45f7676920 100644
+index d8800b48a6..759d4a64f8 100644
 --- a/libavformat/matroskadec.c
 +++ b/libavformat/matroskadec.c
 @@ -49,6 +49,7 @@
@@ -356,7 +281,7 @@ index 2c9408359c..45f7676920 100644
 +            uint64_t id = mapping->value;
 +            if (mappings_id != id)
 +                continue;
-+            av_log(s, AV_LOG_INFO, "blockaddid %"PRId64", title is %s\n", id, tags[i].string);
++            av_log(s, AV_LOG_ERROR, "blockaddid %"PRId64", title is %s\n", id, tags[i].string);
 +            mapping->title = av_strdup(tags[i].string);
 +        }
 +    }
@@ -379,7 +304,7 @@ index 2c9408359c..45f7676920 100644
                                           &track[j].stream->metadata, NULL);
                      found = 1;
                 }
-@@ -3973,29 +4012,12 @@ static int matroska_parse_block_additional(MatroskaDemuxContext *matroska,
+@@ -3964,29 +4003,12 @@ static int matroska_parse_block_additional(MatroskaDemuxContext *matroska,
              break;
          }
  
@@ -416,7 +341,7 @@ index 2c9408359c..45f7676920 100644
      default:
          break;
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index f3e8b8e09f..655df38192 100644
+index 923e18fa1e..c6ccb48d0b 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -201,9 +201,11 @@ typedef struct mkv_track {
@@ -570,8 +495,60 @@ index f3e8b8e09f..655df38192 100644
              }
          }
  
+diff --git a/libavutil/timecode.c b/libavutil/timecode.c
+index 81fb66a5e4..2c054f987c 100644
+--- a/libavutil/timecode.c
++++ b/libavutil/timecode.c
+@@ -347,3 +347,46 @@ uint32_t av_timecode_parse_from_64bit(uint64_t tc64)
+ 
+     return tc32;
+ }
++
++int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title)
++{
++    const int add_block_timecode_count = 4; //TODO
++    size_t sd_size = 0;
++    uint8_t *sd = av_packet_get_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, &sd_size);
++    uint8_t count = sd ? *((uint8_t*) (sd + 4)) : 0;
++    if (!count) {
++        sd_size = 8 + add_block_timecode_count * (8 + 4 + 16);
++        sd = av_packet_new_side_data(pkt, AV_PKT_DATA_S12M_TIMECODE, sd_size);
++        uint32_t *sd_allocated = (uint32_t*)sd;
++        *sd_allocated = sd_size;
++        uint8_t *item_size = sd + 5;
++        *item_size = 8 + 4 + 16;
++        count = 0;
++    }
++
++    if (count >= add_block_timecode_count) {
++        av_log(ctx, AV_LOG_DEBUG, "There are more timecodes in the block than the count indicated in the track header, extra timecodes are ignored.\n");
++    }
++    else if (sd) {
++        av_log(ctx, AV_LOG_DEBUG, "Reading SMPTE timecode from BlockAdditional: 0x%016lX (RFC 5484)\n", tc);
++
++        // header: 0-3 allocated size; 4 count; 5 byte size per item; 6 flags; 7 reserved
++        // flags: 0 id present; 1 title present
++        // content: 8 bytes tc; 4 bytes id; 16 bytes 0 terminated or 16 bytes UTF8 title
++
++        count++;
++        uint8_t *sd_count = (uint8_t*) (sd + 4);
++        *sd_count = count;
++        uint8_t *sd_base = sd + 8 + (8 + 4 + 16) * (count - 1);
++        uint64_t *sd_tc = (uint64_t*)sd_base;
++        uint32_t *sd_id = (uint32_t*)(sd_base + 8);
++        char* sd_title = (char*)(sd_base + 8 + 4);
++        *sd_tc = tc;
++        *sd_id = id;
++        size_t title_size = strlen(title);
++        memcpy(sd_title, title, title_size);
++        memset(sd_title + title_size, 0, 16 - title_size);
++    }
++    
++    return 0;
++}
+\ No newline at end of file
 diff --git a/libavutil/timecode.h b/libavutil/timecode.h
-index 81713a9adf..6c4af1afdc 100644
+index 81713a9adf..b1f140c9bf 100644
 --- a/libavutil/timecode.h
 +++ b/libavutil/timecode.h
 @@ -28,6 +28,8 @@
@@ -583,6 +560,13 @@ index 81713a9adf..6c4af1afdc 100644
  #include "rational.h"
  
  #define AV_TIMECODE_STR_SIZE 23
+@@ -218,4 +220,6 @@ uint64_t av_timecode_expand_to_64bit(uint32_t tc32);
+  */
+ uint32_t av_timecode_parse_from_64bit(uint64_t tc64);
+ 
++int av_timecode_add_to_side_data(AVFormatContext *ctx, AVPacket *pkt, unsigned flags, uint64_t tc, uint32_t id, const char *title);
++
+ #endif /* AVUTIL_TIMECODE_H */
 -- 
-2.52.0
+2.46.0.windows.1
 
