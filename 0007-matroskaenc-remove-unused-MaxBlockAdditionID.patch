@@ -14,10 +14,10 @@ For video tracks: simplify the temporary storage with only a void element and Ma
  5 files changed, 32 insertions(+), 32 deletions(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index be9e0c2..e696502 100644
+index b90485a..a1fa4ff 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
-@@ -1738,16 +1738,16 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
+@@ -1739,16 +1739,16 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
      const AVDOVIDecoderConfigurationRecord *dovi;
      const AVPacketSideData *sd;
  
@@ -37,15 +37,15 @@ index be9e0c2..e696502 100644
                              + 4 /* BlockAddIDValue */
                              + 4 /* BlockAddIDType */);
          }
-@@ -3339,7 +3339,7 @@ after_cues:
-             for (unsigned i = 0; i < s->nb_streams; i++) {
-                 const mkv_track *track = &mkv->tracks[i];
+@@ -3376,7 +3376,7 @@ after_cues:
+         for (unsigned i = 0; i < s->nb_streams; i++) {
+             const mkv_track *track = &mkv->tracks[i];
  
--                if (!track->max_blockaddid)
-+                if (!track->max_blockaddid || !track->blockadditionmapping_offset)
-                     continue;
+-            if (!track->max_blockaddid)
++            if (!track->max_blockaddid || !track->blockadditionmapping_offset)
+                 continue;
  
-                 // We reserved a single byte to write this value.
+             // We reserved a single byte to write this value.
 diff --git a/tests/ref/lavf/mka b/tests/ref/lavf/mka
 index 6f9a56b..6fe5ca8 100644
 --- a/tests/ref/lavf/mka
