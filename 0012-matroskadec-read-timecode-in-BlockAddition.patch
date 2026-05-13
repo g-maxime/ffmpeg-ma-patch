@@ -9,7 +9,7 @@ Subject: [PATCH 12/19] matroskadec: read timecode in BlockAddition
  2 files changed, 35 insertions(+)
 
 diff --git a/libavformat/matroska.h b/libavformat/matroska.h
-index 719f2ef..d78b33d 100644
+index c6986cfd..7d220936 100644
 --- a/libavformat/matroska.h
 +++ b/libavformat/matroska.h
 @@ -361,6 +361,7 @@ typedef enum {
@@ -19,12 +19,12 @@ index 719f2ef..d78b33d 100644
 +  MATROSKA_BLOCK_ADD_ID_TYPE_SMPTE_12M              = 121,
    MATROSKA_BLOCK_ADD_ID_TYPE_DVCC                   = 0x64766343, // MKBETAG('d','v','c','C')
    MATROSKA_BLOCK_ADD_ID_TYPE_DVVC                   = 0x64767643, // MKBETAG('d','v','v','C')
- } MatroskaBlockAddIDType;
+   MATROSKA_BLOCK_ADD_ID_TYPE_HVCE                   = 0x68766345, // MKBETAG('h','v','c','E')
 diff --git a/libavformat/matroskadec.c b/libavformat/matroskadec.c
-index 1900a93..3d8b7fc 100644
+index 8e24433c..230a833f 100644
 --- a/libavformat/matroskadec.c
 +++ b/libavformat/matroskadec.c
-@@ -295,6 +295,7 @@ typedef struct MatroskaTrack {
+@@ -296,6 +296,7 @@ typedef struct MatroskaTrack {
  
      uint32_t palette[AVPALETTE_COUNT];
      int has_palette;
@@ -32,7 +32,7 @@ index 1900a93..3d8b7fc 100644
  } MatroskaTrack;
  
  typedef struct MatroskaAttachment {
-@@ -2530,6 +2531,9 @@ static int mkv_parse_block_addition_mappings(AVFormatContext *s, AVStream *st, M
+@@ -2559,6 +2560,9 @@ static int mkv_parse_block_addition_mappings(AVFormatContext *s, AVStream *st, M
                      return AVERROR_INVALIDDATA;
              }
              break;
@@ -42,7 +42,7 @@ index 1900a93..3d8b7fc 100644
          case MATROSKA_BLOCK_ADD_ID_TYPE_DVCC:
          case MATROSKA_BLOCK_ADD_ID_TYPE_DVVC:
              if ((ret = mkv_parse_dvcc_dvvc(s, st, track, &mapping->extradata)) < 0)
-@@ -3999,6 +4003,36 @@ static int matroska_parse_block_additional(MatroskaDemuxContext *matroska,
+@@ -4135,6 +4139,36 @@ static int matroska_parse_block_additional(MatroskaDemuxContext *matroska,
          }
          break;
      }
