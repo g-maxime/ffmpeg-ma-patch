@@ -169,9 +169,9 @@ index 5f4cb78318..9d5a41c78a 100644
 --- a/tests/ref/fate/rgb24-mkv
 +++ b/tests/ref/fate/rgb24-mkv
 @@ -1,4 +1,4 @@
--0013b260aa50b70d1a00d9770581a177 *tests/data/fate/rgb24-mkv.matroska
-+e41925050dadc0d2a70eab5e33ada478 *tests/data/fate/rgb24-mkv.matroska
- 58236 tests/data/fate/rgb24-mkv.matroska
+-e85dcc076f7ebea460517c3255705fec *tests/data/fate/rgb24-mkv.matroska
++09a0bde5634a2a9d03bd640e13b96b7b *tests/data/fate/rgb24-mkv.matroska
+ 58213 tests/data/fate/rgb24-mkv.matroska
  #tb 0: 1/10
  #media_type 0: video
 diff --git a/tests/ref/lavf/mka b/tests/ref/lavf/mka
