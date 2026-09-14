@@ -1,4 +1,4 @@
-From 8e3befae93cf7dcf96971b28ef35af66fedb85e1 Mon Sep 17 00:00:00 2001
+From 232b095c76ae72bc44c6a282f272066fbdb78379 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Tue, 13 Jan 2026 00:18:59 +0100
 Subject: [PATCH 18/19] decklink_dec: support of timecode also with multiple
@@ -12,10 +12,10 @@ Subject: [PATCH 18/19] decklink_dec: support of timecode also with multiple
  4 files changed, 38 insertions(+), 5 deletions(-)
 
 diff --git a/fftools/ffmpeg.c b/fftools/ffmpeg.c
-index c2c85d46bd..0b7d58f97f 100644
+index b394243f59..57c3859c6a 100644
 --- a/fftools/ffmpeg.c
 +++ b/fftools/ffmpeg.c
-@@ -746,7 +746,21 @@ static void print_stream_maps(void)
+@@ -747,7 +747,21 @@ static void print_stream_maps(void)
          }
      }
  
@@ -38,10 +38,10 @@ index c2c85d46bd..0b7d58f97f 100644
              /* an attached file */
              av_log(NULL, AV_LOG_INFO, "  File %s -> Stream #%d:%d\n",
 diff --git a/fftools/ffmpeg_demux.c b/fftools/ffmpeg_demux.c
-index 6f5a2e4e5e..e5fda31f91 100644
+index d28f43a968..d7ff7aa285 100644
 --- a/fftools/ffmpeg_demux.c
 +++ b/fftools/ffmpeg_demux.c
-@@ -782,7 +782,8 @@ static int side_data_queue(const AVPacket *pkt, SideDataQueue *queues, int index
+@@ -801,7 +801,8 @@ static int side_data_queue(const AVPacket *pkt, SideDataQueue *queues, int index
      return 0;
  }
  
@@ -51,7 +51,7 @@ index 6f5a2e4e5e..e5fda31f91 100644
  
  static int input_thread(void *arg)
  {
-@@ -807,6 +808,10 @@ static int input_thread(void *arg)
+@@ -826,6 +827,10 @@ static int input_thread(void *arg)
      // Find the video stream index
      int video_stream_index = -1;
      int nb_streams = f->ctx->nb_streams;
@@ -62,7 +62,7 @@ index 6f5a2e4e5e..e5fda31f91 100644
      for (int i = 0; i < nb_streams; i++) {
          AVStream *st = f->ctx->streams[i];
          if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-@@ -815,7 +820,9 @@ static int input_thread(void *arg)
+@@ -834,7 +839,9 @@ static int input_thread(void *arg)
                  video_stream_index = -1;
                  break;
              }
@@ -73,7 +73,7 @@ index 6f5a2e4e5e..e5fda31f91 100644
              video_stream_index = i;
          }
      }
-@@ -887,10 +894,12 @@ static int input_thread(void *arg)
+@@ -906,10 +913,12 @@ static int input_thread(void *arg)
          }
  
          if (dt.pkt_demux->side_data_elems && dt.pkt_demux->stream_index == video_stream_index) {
@@ -88,10 +88,10 @@ index 6f5a2e4e5e..e5fda31f91 100644
  
          ret = input_packet_process(d, dt.pkt_demux, &send_flags);
 diff --git a/fftools/ffmpeg_mux.c b/fftools/ffmpeg_mux.c
-index 1f7ff737e5..70c6db765d 100644
+index 9323b48e8d..13beac2be7 100644
 --- a/fftools/ffmpeg_mux.c
 +++ b/fftools/ffmpeg_mux.c
-@@ -277,7 +277,15 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
+@@ -272,7 +272,15 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
  
      AVStream *st = s->streams[pkt->stream_index];
      if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {

@@ -1,4 +1,4 @@
-From d9f2162b33f7d1b1122cd0994514596aab3ca8b4 Mon Sep 17 00:00:00 2001
+From a303aaae54eb94aab0e0fc266db9f16089604730 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Sun, 23 Nov 2025 17:40:55 +0100
 Subject: [PATCH 15/19] decklink_dec: support readout of all timecodes
@@ -10,7 +10,7 @@ Subject: [PATCH 15/19] decklink_dec: support readout of all timecodes
  3 files changed, 39 insertions(+), 9 deletions(-)
 
 diff --git a/libavdevice/decklink_common.h b/libavdevice/decklink_common.h
-index 095b438bce..3f67d023b1 100644
+index 11430787ce..4467ece18c 100644
 --- a/libavdevice/decklink_common.h
 +++ b/libavdevice/decklink_common.h
 @@ -238,6 +238,7 @@ static const BMDTimecodeFormat decklink_timecode_format_map[] = {
@@ -22,7 +22,7 @@ index 095b438bce..3f67d023b1 100644
  
  static const BMDLinkConfiguration decklink_link_conf_map[] = {
 diff --git a/libavdevice/decklink_dec.cpp b/libavdevice/decklink_dec.cpp
-index 78ec0ee0d2..8727e9d389 100644
+index 39d2677d7d..f19f2d4074 100644
 --- a/libavdevice/decklink_dec.cpp
 +++ b/libavdevice/decklink_dec.cpp
 @@ -736,6 +736,33 @@ static int get_frame_timecode(AVFormatContext *avctx, decklink_ctx *ctx, AVTimec

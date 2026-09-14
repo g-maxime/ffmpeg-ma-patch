@@ -1,4 +1,4 @@
-From 483a4d96fb7f0663331d0c6750880974f2a287e7 Mon Sep 17 00:00:00 2001
+From 83f50c481cac111c32cb30644408cfdde5b8f969 Mon Sep 17 00:00:00 2001
 From: Dave Rice <dave at dericed.com>
 Date: Mon, 30 Jun 2025 00:00:00 +0200
 Subject: [PATCH 10/19] 32-bit timecode to 64-bit RFC 5484 timecode functions
@@ -9,10 +9,10 @@ Subject: [PATCH 10/19] 32-bit timecode to 64-bit RFC 5484 timecode functions
  2 files changed, 126 insertions(+)
 
 diff --git a/libavutil/timecode.c b/libavutil/timecode.c
-index b5352a3961..341a4fef98 100644
+index 316100759e..6f331ea14b 100644
 --- a/libavutil/timecode.c
 +++ b/libavutil/timecode.c
-@@ -243,3 +243,107 @@ int av_timecode_init_from_string(AVTimecode *tc, AVRational rate, const char *st
+@@ -252,3 +252,107 @@ int av_timecode_init_from_string(AVTimecode *tc, AVRational rate, const char *st
  
      return av_timecode_init_from_components(tc, rate, flags, hh, mm, ss, ff, log_ctx);
  }

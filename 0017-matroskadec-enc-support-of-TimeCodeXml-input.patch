@@ -1,4 +1,4 @@
-From 018efa64705cab983664179748e50ef00fb368c3 Mon Sep 17 00:00:00 2001
+From c635927e9ff4e2e79d93b202f5c15cfe5cb152c8 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Sun, 6 Jul 2025 15:12:22 +0200
 Subject: [PATCH 17/19] matroskadec/enc: support of TimeCodeXml input
@@ -8,10 +8,10 @@ Subject: [PATCH 17/19] matroskadec/enc: support of TimeCodeXml input
  1 file changed, 1194 insertions(+), 1 deletion(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index 32df6211d3..f3e8b8e09f 100644
+index b3b37a4188..b64cafa630 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
-@@ -210,6 +210,7 @@ typedef struct mkv_track {
+@@ -212,6 +212,7 @@ typedef struct mkv_track {
      int64_t         ts_offset;
      uint64_t        default_duration_low;
      uint64_t        default_duration_high;
@@ -19,7 +19,7 @@ index 32df6211d3..f3e8b8e09f 100644
      /* This callback will be called twice: First with a NULL AVIOContext
       * to return the size of the (Simple)Block's data via size
       * and a second time with the AVIOContext set when the data
-@@ -269,6 +270,8 @@ typedef struct MatroskaMuxContext {
+@@ -271,6 +272,8 @@ typedef struct MatroskaMuxContext {
      int                 flipped_raw_rgb;
      int                 default_mode;
      int                 move_cues_to_front;
@@ -28,7 +28,7 @@ index 32df6211d3..f3e8b8e09f 100644
  
      uint32_t            segment_uid[4];
  } MatroskaMuxContext;
-@@ -1707,6 +1710,1038 @@ fail:
+@@ -1740,6 +1743,1038 @@ fail:
      return AVERROR(EINVAL);
  }
  
@@ -1067,7 +1067,7 @@ index 32df6211d3..f3e8b8e09f 100644
  static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMuxContext *mkv,
                                             const AVCodecParameters *par, AVIOContext *pb,
                                             mkv_track *track, const AVStream *st)
-@@ -1715,6 +2750,142 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
+@@ -1748,6 +2783,142 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
      const AVDOVIDecoderConfigurationRecord *dovi;
      const AVPacketSideData *sd;
  
@@ -1210,7 +1210,7 @@ index 32df6211d3..f3e8b8e09f 100644
      if (IS_SEEKABLE(s->pb, mkv) && par->codec_type == AVMEDIA_TYPE_VIDEO && mkv->reserve_video_track_space > 1) {
          track->blockadditionmapping_offset = avio_tell(pb);
          // We can't know at this point if there will be a block with BlockAdditions, so
-@@ -2915,11 +4086,12 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+@@ -3039,11 +4210,12 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
      }
  
      // Extract timecode from side data and write as BlockAdditional
@@ -1224,7 +1224,7 @@ index 32df6211d3..f3e8b8e09f 100644
              if (side_data_size / sizeof(uint64_t) - 1 >= count ) {
                  uint64_t written_count = count;
                  side_data_64++;
-@@ -2944,6 +4116,26 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+@@ -3068,6 +4240,26 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
          }
      }
  
@@ -1251,7 +1251,7 @@ index 32df6211d3..f3e8b8e09f 100644
      ebml_writer_close_or_discard_master(&writer);
  
      if (!force_blockgroup && writer.nb_elements == 2) {
-@@ -3637,6 +4829,7 @@ static const AVOption options[] = {
+@@ -3765,6 +4957,7 @@ static const AVOption options[] = {
      { "infer", "for each track type, mark each track of disposition default as default; if none exists, mark the first track as default", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_INFER }, 0, 0, FLAGS, .unit = "default_mode" },
      { "infer_no_subs", "for each track type, mark each track of disposition default as default; for audio and video: if none exists, mark the first track as default", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_INFER_NO_SUBS }, 0, 0, FLAGS, .unit = "default_mode" },
      { "passthrough", "use the disposition flag as-is", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_PASSTHROUGH }, 0, 0, FLAGS, .unit = "default_mode" },
