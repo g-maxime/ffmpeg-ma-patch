@@ -61,7 +61,7 @@ index 536a55c5be..37fcfdc7e6 100644
 +                  avctx->pix_fmt = AV_PIX_FMT_GRAY16;
 +              }
 +          }
-+          if (avctx->pix_fmt != AV_PIX_FMT_RGB48 || s->apply_trc_type != AVCOL_TRC_UNSPECIFIED || s->compression != EXR_RAW)
++          if (avctx->pix_fmt != AV_PIX_FMT_RGB48 || s->compression != EXR_RAW)
 +          {
 +            av_log(avctx, AV_LOG_ERROR, "consider_float16_as_uint16 not tested with this config.\n");
 +            return AVERROR_PATCHWELCOME;
