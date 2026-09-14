@@ -1,4 +1,4 @@
-From 17f8a89d1a0c5e21fd477004bcbc737acaab1f90 Mon Sep 17 00:00:00 2001
+From cdd01f1f8e4ec5ba27e04ec2934c971c87f16cec Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Fri, 21 Nov 2025 12:38:04 +0100
 Subject: [PATCH 14/19] mux: keep AV_PKT_DATA_S12M_TIMECODE during transcode
@@ -10,10 +10,10 @@ Subject: [PATCH 14/19] mux: keep AV_PKT_DATA_S12M_TIMECODE during transcode
  3 files changed, 175 insertions(+)
 
 diff --git a/fftools/ffmpeg_demux.c b/fftools/ffmpeg_demux.c
-index cb79dd7611..6f5a2e4e5e 100644
+index 38bd580bfc..d28f43a968 100644
 --- a/fftools/ffmpeg_demux.c
 +++ b/fftools/ffmpeg_demux.c
-@@ -721,6 +721,69 @@ static int demux_thread_init(DemuxThreadContext *dt)
+@@ -740,6 +740,69 @@ static int demux_thread_init(DemuxThreadContext *dt)
      return 0;
  }
  
@@ -83,7 +83,7 @@ index cb79dd7611..6f5a2e4e5e 100644
  static int input_thread(void *arg)
  {
      Demuxer   *d = arg;
-@@ -741,6 +804,22 @@ static int input_thread(void *arg)
+@@ -760,6 +823,22 @@ static int input_thread(void *arg)
      d->read_started    = 1;
      d->wallclock_start = av_gettime_relative();
  
@@ -106,7 +106,7 @@ index cb79dd7611..6f5a2e4e5e 100644
      while (1) {
          DemuxStream *ds;
          unsigned send_flags = 0;
-@@ -807,6 +886,13 @@ static int input_thread(void *arg)
+@@ -826,6 +905,13 @@ static int input_thread(void *arg)
              }
          }
  
@@ -121,10 +121,10 @@ index cb79dd7611..6f5a2e4e5e 100644
          if (ret < 0)
              break;
 diff --git a/fftools/ffmpeg_mux.c b/fftools/ffmpeg_mux.c
-index 25f66dd185..1f7ff737e5 100644
+index b408b02f2a..9323b48e8d 100644
 --- a/fftools/ffmpeg_mux.c
 +++ b/fftools/ffmpeg_mux.c
-@@ -206,6 +206,67 @@ static int mux_fixup_ts(Muxer *mux, MuxStream *ms, AVPacket *pkt)
+@@ -201,6 +201,67 @@ static int mux_fixup_ts(Muxer *mux, MuxStream *ms, AVPacket *pkt)
      return 0;
  }
  
@@ -192,7 +192,7 @@ index 25f66dd185..1f7ff737e5 100644
  static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
  {
      MuxStream *ms = ms_from_ost(ost);
-@@ -214,6 +275,11 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
+@@ -209,6 +270,11 @@ static int write_packet(Muxer *mux, OutputStream *ost, AVPacket *pkt)
      uint64_t frame_num;
      int ret;
  

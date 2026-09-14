@@ -1,19 +1,19 @@
-From 8f7c53e54877d1964b9e9aa7cdb623bd7226708c Mon Sep 17 00:00:00 2001
+From 5b1972d6c1e0e6bf4da7f4ca77126d1a048cafb3 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Thu, 4 Dec 2025 17:31:32 +0100
 Subject: [PATCH 19/19] decklink_dec: support labels
 
 ---
  fftools/ffprobe.c            |  27 +++++++--
- libavdevice/decklink_dec.cpp |  75 ++++++++++++------------
- libavformat/avformat.c       |  81 ++++++++++++++++++++++++++
+ libavdevice/decklink_dec.cpp |  75 +++++++++++------------
+ libavformat/avformat.c       |  81 +++++++++++++++++++++++++
  libavformat/avformat.h       |  25 ++++++++
- libavformat/dump.c           |  45 ++++++++++++---
+ libavformat/dump.c           |  45 +++++++++++---
  libavformat/matroska.h       |   1 +
  libavformat/matroskadec.c    |  80 +++++++++++++++++--------
- libavformat/matroskaenc.c    | 109 ++++++++++++++++++++++++++++++++---
+ libavformat/matroskaenc.c    | 111 ++++++++++++++++++++++++++++++++---
  libavutil/timecode.h         |   2 +
- 9 files changed, 362 insertions(+), 83 deletions(-)
+ 9 files changed, 363 insertions(+), 84 deletions(-)
 
 diff --git a/fftools/ffprobe.c b/fftools/ffprobe.c
 index 71d388acf9..1918d69af2 100644
@@ -198,10 +198,10 @@ index 98b64c36d7..6303c701fd 100644
                          }
  
 diff --git a/libavformat/avformat.c b/libavformat/avformat.c
-index db9fad2f2d..b35cbcde0b 100644
+index bb574e0c7b..e41c783b63 100644
 --- a/libavformat/avformat.c
 +++ b/libavformat/avformat.c
-@@ -961,3 +961,84 @@ int ff_format_io_close(AVFormatContext *s, AVIOContext **pb)
+@@ -957,3 +957,84 @@ int ff_format_io_close(AVFormatContext *s, AVIOContext **pb)
      *pb = NULL;
      return ret;
  }
@@ -288,10 +288,10 @@ index db9fad2f2d..b35cbcde0b 100644
 +}
 \ No newline at end of file
 diff --git a/libavformat/avformat.h b/libavformat/avformat.h
-index d4f10122e6..fb61314c21 100644
+index ef2b08c4f3..a1c2708e4e 100644
 --- a/libavformat/avformat.h
 +++ b/libavformat/avformat.h
-@@ -3045,6 +3045,31 @@ void av_dump_format(AVFormatContext *ic,
+@@ -3017,6 +3017,31 @@ void av_dump_format(AVFormatContext *ic,
                      const char *url,
                      int is_output);
  
@@ -404,7 +404,7 @@ index 7d22093672..02d851697d 100644
  /* IDs in the seekhead master */
  #define MATROSKA_ID_SEEKENTRY  0x4DBB
 diff --git a/libavformat/matroskadec.c b/libavformat/matroskadec.c
-index 230a833fb2..184625ddc2 100644
+index 03e7e21010..749809635c 100644
 --- a/libavformat/matroskadec.c
 +++ b/libavformat/matroskadec.c
 @@ -50,6 +50,7 @@
@@ -558,7 +558,7 @@ index 230a833fb2..184625ddc2 100644
      default:
          side_data = av_packet_new_side_data(pkt, AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL,
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index b64cafa630..be940db09d 100644
+index b64cafa630..1fc333ca98 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -203,9 +203,11 @@ typedef struct mkv_track {
@@ -661,7 +661,12 @@ index b64cafa630..be940db09d 100644
  
                      int blockaddid = MATROSKA_BLOCK_ADD_ID_SMPTE_12M + i;
                      mkv_write_blockadditional(&writer, payload, 8, blockaddid);
-@@ -4711,6 +4762,48 @@ after_cues:
+@@ -4707,10 +4758,52 @@ after_cues:
+             }
+             for (int i = 0; i < block_type_timecode_count; i++) {
+                 mkv_write_blockadditional_header(s, MATROSKA_BLOCK_ADD_ID_TYPE_SMPTE_12M, MATROSKA_BLOCK_ADD_ID_SMPTE_12M + i);
+-           }
++            }
              if (remaining_video_track_space > 1) {
                  put_ebml_void(track_bc, remaining_video_track_space);
              }
@@ -724,5 +729,5 @@ index 81713a9adf..6c4af1afdc 100644
  
  #define AV_TIMECODE_STR_SIZE 23
 -- 
-2.52.0
+2.46.0.windows.1
 

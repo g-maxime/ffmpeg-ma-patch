@@ -1,4 +1,4 @@
-From 5356e99c5ed51189caacd7c861d39ded221b5071 Mon Sep 17 00:00:00 2001
+From baa782e8b1344967e0765076927a90c647e1b181 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?J=C3=A9r=C3=B4me=20Martinez?= <jerome@mediaarea.net>
 Date: Wed, 14 Oct 2020 08:02:22 +0200
 Subject: [PATCH 01/19] EXR_consider_float16_as_uint16
@@ -8,10 +8,10 @@ Subject: [PATCH 01/19] EXR_consider_float16_as_uint16
  1 file changed, 29 insertions(+), 3 deletions(-)
 
 diff --git a/libavcodec/exr.c b/libavcodec/exr.c
-index 536a55c5be..37fcfdc7e6 100644
+index 0e9c734a10..19f7506a14 100644
 --- a/libavcodec/exr.c
 +++ b/libavcodec/exr.c
-@@ -203,6 +203,7 @@ typedef struct EXRContext {
+@@ -195,6 +195,7 @@ typedef struct EXRContext {
  
      Float2HalfTables f2h_tables;
      Half2FloatTables h2f_tables;
@@ -19,7 +19,7 @@ index 536a55c5be..37fcfdc7e6 100644
  } EXRContext;
  
  static int zip_uncompress(const EXRContext *s, const uint8_t *src, int compressed_size,
-@@ -1491,7 +1492,7 @@ static int decode_block(AVCodecContext *avctx, void *tdata,
+@@ -1464,7 +1465,7 @@ static int decode_block(AVCodecContext *avctx, void *tdata,
          }
      } else {
  
@@ -28,7 +28,7 @@ index 536a55c5be..37fcfdc7e6 100644
          ptr = p->data[0] + window_ymin * p->linesize[0] + (window_xmin * s->desc->nb_components * 2);
  
          for (i = 0; i < ysize; i++, ptr += p->linesize[0]) {
-@@ -1515,11 +1516,11 @@ static int decode_block(AVCodecContext *avctx, void *tdata,
+@@ -1488,11 +1489,11 @@ static int decode_block(AVCodecContext *avctx, void *tdata,
  
              for (x = 0; x < xsize; x++) {
                  for (c = 0; c < rgb_channel_count; c++) {
@@ -42,7 +42,7 @@ index 536a55c5be..37fcfdc7e6 100644
              }
  
              // Zero out the end if xmax+1 is not w
-@@ -2134,6 +2135,29 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *picture,
+@@ -2112,6 +2113,29 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *picture,
  
      switch (s->pixel_type) {
      case EXR_HALF:
@@ -72,7 +72,7 @@ index 536a55c5be..37fcfdc7e6 100644
          if (s->channel_offsets[3] >= 0) {
              if (!s->is_luma) {
                  avctx->pix_fmt = AV_PIX_FMT_GBRAPF16;
-@@ -2393,6 +2417,8 @@ static av_cold int decode_end(AVCodecContext *avctx)
+@@ -2350,6 +2374,8 @@ static av_cold int decode_end(AVCodecContext *avctx)
  #define OFFSET(x) offsetof(EXRContext, x)
  #define VD AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_DECODING_PARAM
  static const AVOption options[] = {

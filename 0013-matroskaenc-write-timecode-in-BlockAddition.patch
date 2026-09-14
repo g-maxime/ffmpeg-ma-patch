@@ -1,4 +1,4 @@
-From f0c7232ecc488b1c8eb7d5a45e2a778781c24ebb Mon Sep 17 00:00:00 2001
+From 0026f08b7ccb824d0d71c5c39dbb99fb7c3d83a3 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Thu, 4 Sep 2025 20:18:08 +0200
 Subject: [PATCH 13/19] matroskaenc: write timecode in BlockAddition
@@ -8,7 +8,7 @@ Subject: [PATCH 13/19] matroskaenc: write timecode in BlockAddition
  1 file changed, 44 insertions(+), 1 deletion(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index 77ea4a2f..b3b37a41 100644
+index 77ea4a2f67..b3b37a4188 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -61,6 +61,7 @@

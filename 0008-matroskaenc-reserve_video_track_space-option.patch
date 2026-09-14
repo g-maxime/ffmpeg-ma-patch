@@ -1,4 +1,4 @@
-From 6f82af6baa5cc98e30696d19a99a623a26ee9e8e Mon Sep 17 00:00:00 2001
+From 4f2bfcfaead38fc9ca897057382b2f25405d96b2 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Wed, 3 Sep 2025 21:33:50 +0200
 Subject: [PATCH 08/19] matroskaenc: reserve_video_track_space option
@@ -10,7 +10,7 @@ It is also possible to reduce the reserved space (or even eliminate it) for thos
  1 file changed, 59 insertions(+), 22 deletions(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index 47410094..88cf2187 100644
+index 47410094fe..88cf218739 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -82,6 +82,8 @@

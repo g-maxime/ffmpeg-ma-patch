@@ -1,4 +1,4 @@
-From 4e1675488cbabb8e93162cddf373be74b4637abe Mon Sep 17 00:00:00 2001
+From 1866bf6f82acaa0bc139ff95cd4ca376e12b1be9 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Wed, 3 Sep 2025 19:54:10 +0200
 Subject: [PATCH 07/19] matroskaenc: remove unused MaxBlockAdditionID
@@ -6,15 +6,25 @@ Subject: [PATCH 07/19] matroskaenc: remove unused MaxBlockAdditionID
 For non video tracks: it is never used, let's save 4 bytes
 For video tracks: simplify the temporary storage with only a void element and MaxBlockAdditionID will be written when finishing the track if needed (not the default value)
 ---
- libavformat/matroskaenc.c     |  8 +++----
- tests/ref/lavf/mka            |  4 ++--
- tests/ref/lavf/mkv            |  4 ++--
- tests/ref/lavf/mkv_attachment |  4 ++--
- tests/ref/seek/lavf-mkv       | 44 +++++++++++++++++------------------
- 5 files changed, 32 insertions(+), 32 deletions(-)
+ libavformat/matroskaenc.c                     |  8 ++--
+ tests/ref/fate/atrac-matroska-remux           |  4 +-
+ tests/ref/fate/matroska-avoid-negative-ts     |  4 +-
+ tests/ref/fate/matroska-dvbsub-remux          |  4 +-
+ tests/ref/fate/matroska-flac-extradata-update |  4 +-
+ tests/ref/fate/matroska-move-cues-to-front    |  4 +-
+ tests/ref/fate/matroska-ms-mode               |  4 +-
+ tests/ref/fate/matroska-pgs-remux             |  4 +-
+ tests/ref/fate/matroska-pgs-remux-durations   |  4 +-
+ tests/ref/fate/matroska-qt-mode               |  4 +-
+ tests/ref/fate/rgb24-mkv                      |  2 +-
+ tests/ref/lavf/mka                            |  4 +-
+ tests/ref/lavf/mkv                            |  4 +-
+ tests/ref/lavf/mkv_attachment                 |  4 +-
+ tests/ref/seek/lavf-mkv                       | 44 +++++++++----------
+ 15 files changed, 51 insertions(+), 51 deletions(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index 97d66558..47410094 100644
+index 97d66558f8..47410094fe 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -1739,16 +1739,16 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
@@ -46,8 +56,126 @@ index 97d66558..47410094 100644
                  continue;
  
              // We reserved a single byte to write this value.
+diff --git a/tests/ref/fate/atrac-matroska-remux b/tests/ref/fate/atrac-matroska-remux
+index b34e801806..0e2fbac1d0 100644
+--- a/tests/ref/fate/atrac-matroska-remux
++++ b/tests/ref/fate/atrac-matroska-remux
+@@ -1,5 +1,5 @@
+-1e0eab5c5cb6ee0a77ff9c4611a3044b *tests/data/fate/atrac-matroska-remux.matroska
+-450932 tests/data/fate/atrac-matroska-remux.matroska
++3dfec76d1df4b69d4b8fcbf19d1fa2bc *tests/data/fate/atrac-matroska-remux.matroska
++450928 tests/data/fate/atrac-matroska-remux.matroska
+ #tb 0: 1/1000
+ #media_type 0: audio
+ #codec_id 0: atrac1
+diff --git a/tests/ref/fate/matroska-avoid-negative-ts b/tests/ref/fate/matroska-avoid-negative-ts
+index 22959695ec..b86ccdb36e 100644
+--- a/tests/ref/fate/matroska-avoid-negative-ts
++++ b/tests/ref/fate/matroska-avoid-negative-ts
+@@ -1,5 +1,5 @@
+-fb4e7a969ef65f61c4c45d5976188aa2 *tests/data/fate/matroska-avoid-negative-ts.matroska
+-973080 tests/data/fate/matroska-avoid-negative-ts.matroska
++30f3bed6e6a238bdaeb0d697b17e0a2b *tests/data/fate/matroska-avoid-negative-ts.matroska
++973076 tests/data/fate/matroska-avoid-negative-ts.matroska
+ #extradata 0:       22, 0x2885037c
+ #tb 0: 1/1000
+ #media_type 0: video
+diff --git a/tests/ref/fate/matroska-dvbsub-remux b/tests/ref/fate/matroska-dvbsub-remux
+index f55b9642c4..b18ab9edb9 100644
+--- a/tests/ref/fate/matroska-dvbsub-remux
++++ b/tests/ref/fate/matroska-dvbsub-remux
+@@ -1,5 +1,5 @@
+-d6385d4623cd59061c13e26b004eaa8e *tests/data/fate/matroska-dvbsub-remux.matroska
+-39016 tests/data/fate/matroska-dvbsub-remux.matroska
++a05501ff60051aca59fd67b8bac69a63 *tests/data/fate/matroska-dvbsub-remux.matroska
++39008 tests/data/fate/matroska-dvbsub-remux.matroska
+ #extradata 0:        5, 0x00bb0064
+ #extradata 1:        5, 0x00bb0064
+ #tb 0: 1/1000
+diff --git a/tests/ref/fate/matroska-flac-extradata-update b/tests/ref/fate/matroska-flac-extradata-update
+index 79acbb7426..077e3a756d 100644
+--- a/tests/ref/fate/matroska-flac-extradata-update
++++ b/tests/ref/fate/matroska-flac-extradata-update
+@@ -1,5 +1,5 @@
+-75ec39f0faaaff953e2d46b431acc307 *tests/data/fate/matroska-flac-extradata-update.matroska
+-1828 tests/data/fate/matroska-flac-extradata-update.matroska
++068409ca72dde7a059159c4b3ee98e36 *tests/data/fate/matroska-flac-extradata-update.matroska
++1816 tests/data/fate/matroska-flac-extradata-update.matroska
+ #extradata 0:       34, 0x7166090c
+ #extradata 1:       34, 0x7166090c
+ #extradata 2:       34, 0x7166090c
+diff --git a/tests/ref/fate/matroska-move-cues-to-front b/tests/ref/fate/matroska-move-cues-to-front
+index 1af5b1fab4..8571f3beba 100644
+--- a/tests/ref/fate/matroska-move-cues-to-front
++++ b/tests/ref/fate/matroska-move-cues-to-front
+@@ -1,5 +1,5 @@
+-deeb9e63e52e015e5f7f592f3417f385 *tests/data/fate/matroska-move-cues-to-front.matroska
+-23056700 tests/data/fate/matroska-move-cues-to-front.matroska
++1c62f605c71edf474eaad7004a5a02b2 *tests/data/fate/matroska-move-cues-to-front.matroska
++23056692 tests/data/fate/matroska-move-cues-to-front.matroska
+ #tb 0: 1/1000
+ #media_type 0: audio
+ #codec_id 0: pcm_s24be
+diff --git a/tests/ref/fate/matroska-ms-mode b/tests/ref/fate/matroska-ms-mode
+index 0e31c990dc..19d53de305 100644
+--- a/tests/ref/fate/matroska-ms-mode
++++ b/tests/ref/fate/matroska-ms-mode
+@@ -1,5 +1,5 @@
+-e7f44cd6a5c0f45fea11874afb8c1c0d *tests/data/fate/matroska-ms-mode.matroska
+-413103 tests/data/fate/matroska-ms-mode.matroska
++13516241b74daac97fcbc070e91c7e17 *tests/data/fate/matroska-ms-mode.matroska
++413099 tests/data/fate/matroska-ms-mode.matroska
+ #extradata 0:       40, 0x54290c93
+ #extradata 1:      114, 0xb6c80771
+ #tb 0: 1/1000
+diff --git a/tests/ref/fate/matroska-pgs-remux b/tests/ref/fate/matroska-pgs-remux
+index 318cc65ec3..f73e57f948 100644
+--- a/tests/ref/fate/matroska-pgs-remux
++++ b/tests/ref/fate/matroska-pgs-remux
+@@ -1,5 +1,5 @@
+-b03d39ae755cb07fde023f6e9e6186ce *tests/data/fate/matroska-pgs-remux.matroska
+-49747 tests/data/fate/matroska-pgs-remux.matroska
++8380e83f7b2874feed3c0b34e54dce6e *tests/data/fate/matroska-pgs-remux.matroska
++49743 tests/data/fate/matroska-pgs-remux.matroska
+ #tb 0: 1/1000
+ #media_type 0: subtitle
+ #codec_id 0: hdmv_pgs_subtitle
+diff --git a/tests/ref/fate/matroska-pgs-remux-durations b/tests/ref/fate/matroska-pgs-remux-durations
+index 4a07f5edf2..2aedd42759 100644
+--- a/tests/ref/fate/matroska-pgs-remux-durations
++++ b/tests/ref/fate/matroska-pgs-remux-durations
+@@ -1,5 +1,5 @@
+-1d8fedf8f90f755f9dd6914489ee8ab2 *tests/data/fate/matroska-pgs-remux-durations.matroska
+-49759 tests/data/fate/matroska-pgs-remux-durations.matroska
++52ac72c44facd2cc948637ac8528beb7 *tests/data/fate/matroska-pgs-remux-durations.matroska
++49755 tests/data/fate/matroska-pgs-remux-durations.matroska
+ #tb 0: 1/1000
+ #media_type 0: subtitle
+ #codec_id 0: hdmv_pgs_subtitle
+diff --git a/tests/ref/fate/matroska-qt-mode b/tests/ref/fate/matroska-qt-mode
+index 90bbd52bde..e7184937b8 100644
+--- a/tests/ref/fate/matroska-qt-mode
++++ b/tests/ref/fate/matroska-qt-mode
+@@ -1,5 +1,5 @@
+-bab6f4122a60a0d4e192fb93c17a5464 *tests/data/fate/matroska-qt-mode.matroska
+-1884240 tests/data/fate/matroska-qt-mode.matroska
++399f6dc1c1b3c623e670e0dc32b29a36 *tests/data/fate/matroska-qt-mode.matroska
++1884236 tests/data/fate/matroska-qt-mode.matroska
+ #extradata 0:       90, 0x817d0185
+ #tb 0: 1/1000
+ #media_type 0: video
+diff --git a/tests/ref/fate/rgb24-mkv b/tests/ref/fate/rgb24-mkv
+index 5f4cb78318..9d5a41c78a 100644
+--- a/tests/ref/fate/rgb24-mkv
++++ b/tests/ref/fate/rgb24-mkv
+@@ -1,4 +1,4 @@
+-0013b260aa50b70d1a00d9770581a177 *tests/data/fate/rgb24-mkv.matroska
++e41925050dadc0d2a70eab5e33ada478 *tests/data/fate/rgb24-mkv.matroska
+ 58236 tests/data/fate/rgb24-mkv.matroska
+ #tb 0: 1/10
+ #media_type 0: video
 diff --git a/tests/ref/lavf/mka b/tests/ref/lavf/mka
-index 6f9a56b2..6fe5ca8d 100644
+index 6f9a56b24a..6fe5ca8d9e 100644
 --- a/tests/ref/lavf/mka
 +++ b/tests/ref/lavf/mka
 @@ -1,3 +1,3 @@
@@ -57,7 +185,7 @@ index 6f9a56b2..6fe5ca8d 100644
 +43584 tests/data/lavf/lavf.mka
  tests/data/lavf/lavf.mka CRC=0x3a1da17e
 diff --git a/tests/ref/lavf/mkv b/tests/ref/lavf/mkv
-index 018a9fec..a9b90ab8 100644
+index 018a9fec45..a9b90ab815 100644
 --- a/tests/ref/lavf/mkv
 +++ b/tests/ref/lavf/mkv
 @@ -1,3 +1,3 @@
@@ -67,7 +195,7 @@ index 018a9fec..a9b90ab8 100644
 +320449 tests/data/lavf/lavf.mkv
  tests/data/lavf/lavf.mkv CRC=0x5df3232f
 diff --git a/tests/ref/lavf/mkv_attachment b/tests/ref/lavf/mkv_attachment
-index 3105ddcc..3884b235 100644
+index 3105ddccbf..3884b235a6 100644
 --- a/tests/ref/lavf/mkv_attachment
 +++ b/tests/ref/lavf/mkv_attachment
 @@ -1,3 +1,3 @@
@@ -77,7 +205,7 @@ index 3105ddcc..3884b235 100644
 +472599 tests/data/lavf/lavf.mkv_attachment
  tests/data/lavf/lavf.mkv_attachment CRC=0x5df3232f
 diff --git a/tests/ref/seek/lavf-mkv b/tests/ref/seek/lavf-mkv
-index e3279590..2eb85063 100644
+index e327959058..2eb8506356 100644
 --- a/tests/ref/seek/lavf-mkv
 +++ b/tests/ref/seek/lavf-mkv
 @@ -1,48 +1,48 @@

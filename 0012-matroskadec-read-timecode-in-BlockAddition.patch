@@ -1,4 +1,4 @@
-From 3da0d05286d595b52f8ed24c16be6574a6c8dd67 Mon Sep 17 00:00:00 2001
+From 99a0b79efa8fdc1a68fd9b8d88c63351884e5747 Mon Sep 17 00:00:00 2001
 From: Jerome Martinez <jerome@mediaarea.net>
 Date: Thu, 4 Sep 2025 20:17:55 +0200
 Subject: [PATCH 12/19] matroskadec: read timecode in BlockAddition
@@ -9,7 +9,7 @@ Subject: [PATCH 12/19] matroskadec: read timecode in BlockAddition
  2 files changed, 35 insertions(+)
 
 diff --git a/libavformat/matroska.h b/libavformat/matroska.h
-index c6986cfd..7d220936 100644
+index c6986cfd1d..7d22093672 100644
 --- a/libavformat/matroska.h
 +++ b/libavformat/matroska.h
 @@ -361,6 +361,7 @@ typedef enum {
@@ -21,7 +21,7 @@ index c6986cfd..7d220936 100644
    MATROSKA_BLOCK_ADD_ID_TYPE_DVVC                   = 0x64767643, // MKBETAG('d','v','v','C')
    MATROSKA_BLOCK_ADD_ID_TYPE_HVCE                   = 0x68766345, // MKBETAG('h','v','c','E')
 diff --git a/libavformat/matroskadec.c b/libavformat/matroskadec.c
-index 8e24433c..230a833f 100644
+index 18849af689..03e7e21010 100644
 --- a/libavformat/matroskadec.c
 +++ b/libavformat/matroskadec.c
 @@ -296,6 +296,7 @@ typedef struct MatroskaTrack {

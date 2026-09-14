@@ -1,4 +1,4 @@
-From c3ec5b992bab31c1c16c7871a56ed964dc79a437 Mon Sep 17 00:00:00 2001
+From 7c1cb5c4329f72a659731b0bb8672e3f299f9ce2 Mon Sep 17 00:00:00 2001
 From: Maxime Gervais <gervais.maxime@gmail.com>
 Date: Fri, 27 Mar 2026 06:55:19 +0100
 Subject: [PATCH] Add a help when the Vulkan wrapper is not found
@@ -8,10 +8,10 @@ Subject: [PATCH] Add a help when the Vulkan wrapper is not found
  1 file changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/libavutil/hwcontext_vulkan.c b/libavutil/hwcontext_vulkan.c
-index 65e2256..5a3fee3 100644
+index 90d3d14dbb..a6a81fc3ea 100644
 --- a/libavutil/hwcontext_vulkan.c
 +++ b/libavutil/hwcontext_vulkan.c
-@@ -655,7 +655,19 @@ static int load_libvulkan(AVHWDeviceContext *ctx)
+@@ -675,7 +675,19 @@ static int load_libvulkan(AVHWDeviceContext *ctx)
      }
  
      if (!p->libvulkan) {

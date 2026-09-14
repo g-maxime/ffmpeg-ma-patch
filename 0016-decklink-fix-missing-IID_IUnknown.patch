@@ -1,4 +1,4 @@
-From a22eaca94d0c2eb3cd35923a7a07346adb0dd005 Mon Sep 17 00:00:00 2001
+From 757c6736bd47620b02d1066795c4b3e056f08e7a Mon Sep 17 00:00:00 2001
 From: Maxime Gervais <gervais.maxime@gmail.com>
 Date: Wed, 3 Dec 2025 09:27:27 +0100
 Subject: [PATCH 16/19] decklink: fix missing IID_IUnknown
@@ -9,7 +9,7 @@ Subject: [PATCH 16/19] decklink: fix missing IID_IUnknown
  2 files changed, 4 insertions(+)
 
 diff --git a/libavdevice/decklink_dec.cpp b/libavdevice/decklink_dec.cpp
-index f19f2d40..98b64c36 100644
+index f19f2d4074..98b64c36d7 100644
 --- a/libavdevice/decklink_dec.cpp
 +++ b/libavdevice/decklink_dec.cpp
 @@ -37,6 +37,8 @@ extern "C" {
@@ -22,7 +22,7 @@ index f19f2d40..98b64c36 100644
  #include "config.h"
  #include "libavformat/packet_internal.h"
 diff --git a/libavdevice/decklink_enc.cpp b/libavdevice/decklink_enc.cpp
-index d2e246c8..eff788dc 100644
+index d2e246c818..eff788dce0 100644
 --- a/libavdevice/decklink_enc.cpp
 +++ b/libavdevice/decklink_enc.cpp
 @@ -34,6 +34,8 @@ extern "C" {
