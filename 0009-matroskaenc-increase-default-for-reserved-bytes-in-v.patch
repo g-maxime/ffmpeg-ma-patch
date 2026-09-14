@@ -70,10 +70,10 @@ index 9d5a41c78a..cf8540dfc2 100644
 --- a/tests/ref/fate/rgb24-mkv
 +++ b/tests/ref/fate/rgb24-mkv
 @@ -1,5 +1,5 @@
--e41925050dadc0d2a70eab5e33ada478 *tests/data/fate/rgb24-mkv.matroska
--58236 tests/data/fate/rgb24-mkv.matroska
-+34857c533c62706ae3ca14fd165cc45a *tests/data/fate/rgb24-mkv.matroska
-+58313 tests/data/fate/rgb24-mkv.matroska
+-09a0bde5634a2a9d03bd640e13b96b7b *tests/data/fate/rgb24-mkv.matroska
+-58213 tests/data/fate/rgb24-mkv.matroska
++78bf3f1023e1966339043336bea73b9b *tests/data/fate/rgb24-mkv.matroska
++58290 tests/data/fate/rgb24-mkv.matroska
  #tb 0: 1/10
  #media_type 0: video
  #codec_id 0: rawvideo
