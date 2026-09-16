@@ -10,7 +10,7 @@ It is also possible to reduce the reserved space (or even eliminate it) for thos
  1 file changed, 59 insertions(+), 22 deletions(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index 47410094fe..88cf218739 100644
+index 796d73c3cc..288ad5a876 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -82,6 +82,8 @@
@@ -38,10 +38,10 @@ index 47410094fe..88cf218739 100644
      int                 cluster_size_limit;
      int64_t             cluster_time_limit;
      int                 write_crc;
-@@ -1739,19 +1743,12 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
-     const AVDOVIDecoderConfigurationRecord *dovi;
-     const AVPacketSideData *sd;
- 
+@@ -1735,19 +1739,12 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
+                                            const AVCodecParameters *par, AVIOContext *pb,
+                                            mkv_track *track, const AVStream *st)
+ {
 -    if (IS_SEEKABLE(s->pb, mkv) && par->codec_type == AVMEDIA_TYPE_VIDEO) {
 +    if (IS_SEEKABLE(s->pb, mkv) && par->codec_type == AVMEDIA_TYPE_VIDEO && mkv->reserve_video_track_space > 1) {
          track->blockadditionmapping_offset = avio_tell(pb);
@@ -59,8 +59,8 @@ index 47410094fe..88cf218739 100644
 +        put_ebml_void(pb, mkv->reserve_video_track_space);
      }
  
-     sd = av_packet_side_data_get(par->coded_side_data, par->nb_coded_side_data,
-@@ -2861,6 +2858,31 @@ static void mkv_write_blockadditional(EbmlWriter *writer, const uint8_t *buf,
+ #if CONFIG_MATROSKA_MUXER
+@@ -2860,6 +2857,31 @@ static void mkv_write_blockadditional(EbmlWriter *writer, const uint8_t *buf,
      ebml_writer_close_master(writer);
  }
  
@@ -92,7 +92,7 @@ index 47410094fe..88cf218739 100644
  static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
                             AVIOContext *pb, const AVStream *st,
                             mkv_track *track, const AVPacket *pkt,
-@@ -2880,7 +2902,7 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+@@ -2879,7 +2901,7 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
      // and BlockAdditions with three elements per BlockMore
      // Don't forget to increment the number of BlockMore when adding
      // support for writing a new blockadditional.
@@ -101,7 +101,7 @@ index 47410094fe..88cf218739 100644
      int ret;
  
      mkv->cur_block.track  = track;
-@@ -3006,6 +3028,7 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+@@ -3005,6 +3027,7 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
                                        MATROSKA_BLOCK_ADD_ID_ITU_T_T35);
              track->max_blockaddid = FFMAX(track->max_blockaddid,
                                            MATROSKA_BLOCK_ADD_ID_ITU_T_T35);
@@ -109,7 +109,7 @@ index 47410094fe..88cf218739 100644
          }
      }
  
-@@ -3421,24 +3444,37 @@ after_cues:
+@@ -3420,24 +3443,37 @@ after_cues:
  
          for (unsigned i = 0; i < s->nb_streams; i++) {
              const mkv_track *track = &mkv->tracks[i];
@@ -159,7 +159,7 @@ index 47410094fe..88cf218739 100644
              }
          }
  
-@@ -3672,6 +3708,7 @@ static const AVCodecTag additional_subtitle_tags[] = {
+@@ -3671,6 +3707,7 @@ static const AVCodecTag additional_subtitle_tags[] = {
  #define FLAGS AV_OPT_FLAG_ENCODING_PARAM
  static const AVOption options[] = {
      { "reserve_index_space", "reserve a given amount of space (in bytes) at the beginning of the file for the index (cues)", OFFSET(reserve_cues_space), AV_OPT_TYPE_INT,   { .i64 = 0 },   0, INT_MAX,   FLAGS },

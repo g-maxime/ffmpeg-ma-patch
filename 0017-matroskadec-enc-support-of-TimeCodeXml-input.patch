@@ -8,7 +8,7 @@ Subject: [PATCH 17/19] matroskadec/enc: support of TimeCodeXml input
  1 file changed, 1194 insertions(+), 1 deletion(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index b3b37a4188..b64cafa630 100644
+index 5eaa5926fa..f4dd475c96 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
 @@ -212,6 +212,7 @@ typedef struct mkv_track {
@@ -28,7 +28,7 @@ index b3b37a4188..b64cafa630 100644
  
      uint32_t            segment_uid[4];
  } MatroskaMuxContext;
-@@ -1740,6 +1743,1038 @@ fail:
+@@ -1740,10 +1743,1178 @@ fail:
      return AVERROR(EINVAL);
  }
  
@@ -1067,10 +1067,7 @@ index b3b37a4188..b64cafa630 100644
  static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMuxContext *mkv,
                                             const AVCodecParameters *par, AVIOContext *pb,
                                             mkv_track *track, const AVStream *st)
-@@ -1748,6 +2783,142 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
-     const AVDOVIDecoderConfigurationRecord *dovi;
-     const AVPacketSideData *sd;
- 
+ {
 +    size_t timecodes_pos = 0;
 +    if (mkv->mediatimecode && par->codec_type == AVMEDIA_TYPE_VIDEO) {
 +        if (s->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
@@ -1210,7 +1207,7 @@ index b3b37a4188..b64cafa630 100644
      if (IS_SEEKABLE(s->pb, mkv) && par->codec_type == AVMEDIA_TYPE_VIDEO && mkv->reserve_video_track_space > 1) {
          track->blockadditionmapping_offset = avio_tell(pb);
          // We can't know at this point if there will be a block with BlockAdditions, so
-@@ -3039,11 +4210,12 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+@@ -3038,11 +4209,12 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
      }
  
      // Extract timecode from side data and write as BlockAdditional
@@ -1224,7 +1221,7 @@ index b3b37a4188..b64cafa630 100644
              if (side_data_size / sizeof(uint64_t) - 1 >= count ) {
                  uint64_t written_count = count;
                  side_data_64++;
-@@ -3068,6 +4240,26 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
+@@ -3067,6 +4239,26 @@ static int mkv_write_block(void *logctx, MatroskaMuxContext *mkv,
          }
      }
  
@@ -1251,7 +1248,7 @@ index b3b37a4188..b64cafa630 100644
      ebml_writer_close_or_discard_master(&writer);
  
      if (!force_blockgroup && writer.nb_elements == 2) {
-@@ -3765,6 +4957,7 @@ static const AVOption options[] = {
+@@ -3764,6 +4956,7 @@ static const AVOption options[] = {
      { "infer", "for each track type, mark each track of disposition default as default; if none exists, mark the first track as default", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_INFER }, 0, 0, FLAGS, .unit = "default_mode" },
      { "infer_no_subs", "for each track type, mark each track of disposition default as default; for audio and video: if none exists, mark the first track as default", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_INFER_NO_SUBS }, 0, 0, FLAGS, .unit = "default_mode" },
      { "passthrough", "use the disposition flag as-is", 0, AV_OPT_TYPE_CONST, { .i64 = DEFAULT_MODE_PASSTHROUGH }, 0, 0, FLAGS, .unit = "default_mode" },
