@@ -24,13 +24,13 @@ For video tracks: simplify the temporary storage with only a void element and Ma
  15 files changed, 51 insertions(+), 51 deletions(-)
 
 diff --git a/libavformat/matroskaenc.c b/libavformat/matroskaenc.c
-index 97d66558f8..47410094fe 100644
+index f278271e24..796d73c3cc 100644
 --- a/libavformat/matroskaenc.c
 +++ b/libavformat/matroskaenc.c
-@@ -1739,16 +1739,16 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
-     const AVDOVIDecoderConfigurationRecord *dovi;
-     const AVPacketSideData *sd;
- 
+@@ -1735,16 +1735,16 @@ static void mkv_write_blockadditionmapping(AVFormatContext *s, const MatroskaMux
+                                            const AVCodecParameters *par, AVIOContext *pb,
+                                            mkv_track *track, const AVStream *st)
+ {
 -    if (IS_SEEKABLE(s->pb, mkv)) {
 +    if (IS_SEEKABLE(s->pb, mkv) && par->codec_type == AVMEDIA_TYPE_VIDEO) {
          track->blockadditionmapping_offset = avio_tell(pb);
@@ -47,7 +47,7 @@ index 97d66558f8..47410094fe 100644
                              + 4 /* BlockAddIDValue */
                              + 4 /* BlockAddIDType */);
          }
-@@ -3422,7 +3422,7 @@ after_cues:
+@@ -3421,7 +3421,7 @@ after_cues:
          for (unsigned i = 0; i < s->nb_streams; i++) {
              const mkv_track *track = &mkv->tracks[i];
  
