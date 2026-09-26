@@ -1,0 +1,30 @@
+From a7d88324f570ab5c71b00d65cf11edd3185df845 Mon Sep 17 00:00:00 2001
+From: Maxime Gervais <gervais.maxime@gmail.com>
+Date: Sat, 26 Sep 2026 14:54:26 +0200
+Subject: [PATCH] hwcontext_vulkan: Use HIC only for host-cached data
+
+Signed-off-by: Maxime Gervais <gervais.maxime@gmail.com>
+---
+ libavutil/hwcontext_vulkan.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/libavutil/hwcontext_vulkan.c b/libavutil/hwcontext_vulkan.c
+index 47c685c6e6..86ecae81c4 100644
+--- a/libavutil/hwcontext_vulkan.c
++++ b/libavutil/hwcontext_vulkan.c
+@@ -5014,6 +5014,12 @@ static int vulkan_transfer_frame(AVHWFramesContext *hwfc,
+         if (swf->linesize[i] < 0)
+             host_copy = host_map = 0;
+ 
++    /* Host image copies may read the image with the CPU. Unless the memory is
++     * host cached, e.g. device local memory read through the PCIe BAR, this
++     * is orders of magnitude slower than a GPU copy into a staging buffer */
++    if (!upload && !(hwf_vk->flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT))
++        host_copy = 0;
++
+     /* Host layout transitions may only originate from a host-copyable layout */
+     if (!upload && host_copy) {
+         for (int i = 0; i < nb_images; i++) {
+-- 
+2.55.0
+
