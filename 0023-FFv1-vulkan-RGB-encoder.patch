@@ -1,0 +1,432 @@
+From 280197eb0fddbb266b0bf76c882bf861bf1bbc70 Mon Sep 17 00:00:00 2001
+From: Maxime Gervais <gervais.maxime@gmail.com>
+Date: Thu, 8 Oct 2026 20:17:46 +0000
+Subject: [PATCH] Fix FFv1 vulkan RGB encoder
+
+---
+ libavcodec/ffv1enc_vulkan.c              | 87 ++++++++++++++++++++----
+ libavcodec/vulkan/ffv1_common.glsl       | 21 ++++--
+ libavcodec/vulkan/ffv1_enc.comp.glsl     | 49 +++++++------
+ libavcodec/vulkan/ffv1_enc_rgb.comp.glsl | 39 ++++++++++-
+ 4 files changed, 157 insertions(+), 39 deletions(-)
+
+diff --git a/libavcodec/ffv1enc_vulkan.c b/libavcodec/ffv1enc_vulkan.c
+index 699df37b6d..3315a04a20 100644
+--- a/libavcodec/ffv1enc_vulkan.c
++++ b/libavcodec/ffv1enc_vulkan.c
+@@ -106,6 +106,10 @@ typedef struct VulkanEncodeFFv1Context {
+     FFVkBuffer order_buf;
+     uint32_t prev_size[MAX_SLICES];
+     int have_prev;
++
++    /* RGB range coder ring buffer (see rgb_tmp_is_buffer()) */
++    FFVkBuffer rgb_tmp;
++    size_t rgb_tmp_size;
+ } VulkanEncodeFFv1Context;
+ 
+ static int cmp_slice_order(const void *a, const void *b)
+@@ -114,6 +118,30 @@ static int cmp_slice_order(const void *a, const void *b)
+     return (x < y) - (x > y);
+ }
+ 
++/* Per-frame share of the results buffer. This is bound as a storage buffer at
++ * fd->idx*stride, so the stride has to be a multiple of
++ * minStorageBufferOffsetAlignment; (max_slice_count + 1)*sizeof(uint32_t)
++ * is not. */
++static size_t ffv1_vk_results_stride(const VulkanEncodeFFv1Context *fv)
++{
++    const FFV1Context *f = &fv->ctx;
++    size_t align = fv->s.props.properties.limits.minStorageBufferOffsetAlignment;
++    if (align < sizeof(uint32_t))
++        align = sizeof(uint32_t);
++    return FFALIGN((f->max_slice_count + 1)*sizeof(uint32_t), align);
++}
++
++/* The RGB range coder encoder keeps the reversible colour transform ring in a
++ * storage buffer rather than a storage image (ffv1_enc_rgb.comp.glsl). This
++ * mirrors the shader's #if there: the plain range coder variant, i.e. not
++ * Golomb, not the float/remap variant and not Bayer. */
++static int rgb_tmp_is_buffer(const VulkanEncodeFFv1Context *fv)
++{
++    const FFV1Context *f = &fv->ctx;
++    return fv->is_rgb && !f->bayer && !f->remap_mode &&
++           f->ac != AC_GOLOMB_RICE;
++}
++
+ extern const char *ff_source_common_comp;
+ extern const char *ff_source_rangecoder_comp;
+ extern const char *ff_source_ffv1_vlc_comp;
+@@ -394,7 +422,7 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+ 
+     AVFrame *tmp = NULL;
+     VkImageView tmp_views[AV_NUM_DATA_POINTERS];
+-    if (fv->is_rgb) {
++    if (fv->is_rgb && !rgb_tmp_is_buffer(fv)) {
+         /* Create a temporaty frame */
+         tmp = av_frame_alloc();
+         if (!(tmp)) {
+@@ -455,7 +483,7 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+     RET(ff_vk_exec_add_dep_frame(&fv->s, exec, src,
+                                  VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT));
+-    if (fv->is_rgb)
++    if (fv->is_rgb && !rgb_tmp_is_buffer(fv))
+         RET(ff_vk_exec_add_dep_frame(&fv->s, exec, tmp,
+                                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT));
+@@ -541,8 +569,21 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+ 
+     vk->CmdDispatch(exec->buf, fv->ctx.num_h_slices, fv->ctx.num_v_slices, 1);
+ 
+-    /* Clean up temporary image if needed */
+-    if (fv->is_rgb) {
++    /* Prepare the colour transform ring for this frame. Both variants must
++     * start zeroed: the first lines of a slice read neighbours that were never
++     * written, and the encoder relies on them being zero. */
++    if (rgb_tmp_is_buffer(fv)) {
++        size_t tmp_off = fd->idx*fv->rgb_tmp_size;
++        FFVkBuffer *ring = &fv->rgb_tmp;
++
++        vk->CmdFillBuffer(exec->buf, ring->buf,
++                          ring->virtual_offset + tmp_off,
++                          fv->rgb_tmp_size, 0);
++        ff_vk_buf_barrier(buf_bar[nb_buf_bar++], ring,
++                          TRANSFER_BIT, TRANSFER_WRITE_BIT, NONE_KHR,
++                          COMPUTE_SHADER_BIT, SHADER_READ_BIT, SHADER_WRITE_BIT,
++                          tmp_off, fv->rgb_tmp_size);
++    } else if (fv->is_rgb) {
+         AVVkFrame *vkf = (AVVkFrame *)tmp->data[0];
+         vkf->layout[0] = VK_IMAGE_LAYOUT_UNDEFINED;
+         vkf->access[0] = VK_ACCESS_2_NONE;
+@@ -628,7 +669,7 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+                         VK_IMAGE_LAYOUT_GENERAL,
+                         VK_QUEUE_FAMILY_IGNORED);
+ 
+-    if (fv->is_rgb)
++    if (fv->is_rgb && !rgb_tmp_is_buffer(fv))
+         ff_vk_frame_barrier(&fv->s, exec, tmp, img_bar, &nb_img_bar,
+                             VK_PIPELINE_STAGE_2_CLEAR_BIT,
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+@@ -655,7 +696,7 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+     ff_vk_shader_update_desc_buffer(&fv->s, exec,
+                                     &fv->enc, 1, 1, 0,
+                                     &fv->results_buf,
+-                                    fd->idx*(f->max_slice_count + 1)*sizeof(uint32_t),
++                                    fd->idx*ffv1_vk_results_stride(fv),
+                                     f->slice_count*sizeof(uint32_t),
+                                     VK_FORMAT_UNDEFINED);
+     ff_vk_shader_update_desc_buffer(&fv->s, exec, &fv->enc,
+@@ -669,7 +710,13 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+                                   1, 3,
+                                   VK_IMAGE_LAYOUT_GENERAL,
+                                   VK_NULL_HANDLE);
+-    if (fv->is_rgb)
++    if (rgb_tmp_is_buffer(fv))
++        ff_vk_shader_update_desc_buffer(&fv->s, exec, &fv->enc, 1, 4, 0,
++                                        &fv->rgb_tmp,
++                                        fd->idx*fv->rgb_tmp_size,
++                                        fv->rgb_tmp_size,
++                                        VK_FORMAT_UNDEFINED);
++    else if (fv->is_rgb)
+         ff_vk_shader_update_img_array(&fv->s, exec, &fv->enc,
+                                       tmp, tmp_views,
+                                       1, 4,
+@@ -720,7 +767,7 @@ static int vulkan_encode_ffv1_submit_frame(AVCodecContext *avctx,
+     /* Gather the per-slice slots into the packet buffer, in the same
+      * submission. */
+     RET(ff_vk_seg_gather(&fv->s, exec, &fv->gather,
+-                         &fv->results_buf, fd->idx*(f->max_slice_count + 1)*sizeof(uint32_t),
++                         &fv->results_buf, fd->idx*ffv1_vk_results_stride(fv),
+                          f->slice_count,
+                          out_data_buf, (out_data_buf->size / f->slice_count) & ~(size_t)15,
+                          compacted_buf, 0, 0));
+@@ -769,7 +816,7 @@ static int get_packet(AVCodecContext *avctx, FFVkExecContext *exec,
+     ff_vk_exec_wait(&fv->s, exec);
+ 
+     /* Invalidate the slice sizes and the packed size if needed */
+-    size_t res_off = fd->idx*(f->max_slice_count + 1)*sizeof(uint32_t);
++    size_t res_off = fd->idx*ffv1_vk_results_stride(fv);
+     size_t total_off = res_off + f->slice_count*sizeof(uint32_t);
+     if (!(fv->results_buf.flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+         VkMappedMemoryRange invalidate_data = {
+@@ -1152,7 +1199,8 @@ static int init_encode_shader(AVCodecContext *avctx, VkSpecializationInfo *sl)
+             .elems  = av_pix_fmt_count_planes(fv->s.frames->sw_format),
+         },
+         { /* tmp */
+-            .type   = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
++            .type   = rgb_tmp_is_buffer(fv) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER :
++                                              VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+             .stages = VK_SHADER_STAGE_COMPUTE_BIT,
+         },
+         { /* fltmap */
+@@ -1408,7 +1456,7 @@ static av_cold int vulkan_encode_ffv1_init(AVCodecContext *avctx)
+     if (err < 0)
+         return err;
+ 
+-    if (fv->is_rgb)
++    if (fv->is_rgb && !rgb_tmp_is_buffer(fv))
+         RET(init_indirect(avctx, fv->ctx.use32bit ?
+                                  AV_PIX_FMT_RGBA128 : AV_PIX_FMT_RGBA64));
+ 
+@@ -1469,7 +1517,7 @@ static av_cold int vulkan_encode_ffv1_init(AVCodecContext *avctx)
+ 
+     /* Buffers */
+     RET(ff_vk_create_buf(&fv->s, &fv->results_buf,
+-                         fv->async_depth*(f->max_slice_count + 1)*sizeof(uint32_t),
++                         fv->async_depth*ffv1_vk_results_stride(fv),
+                          NULL, NULL,
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+@@ -1484,6 +1532,20 @@ static av_cold int vulkan_encode_ffv1_init(AVCodecContext *avctx)
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+     RET(ff_vk_map_buffer(&fv->s, &fv->order_buf, NULL, 0));
+ 
++    /* RGB colour transform ring, one share per in-flight context */
++    if (rgb_tmp_is_buffer(fv)) {
++        fv->rgb_tmp_size = (size_t)fv->s.frames->width *
++                           f->num_v_slices*RGB_LINECACHE*
++                           sizeof(uint32_t)*4;
++
++        RET(ff_vk_create_buf(&fv->s, &fv->rgb_tmp,
++                             fv->async_depth*fv->rgb_tmp_size,
++                             NULL, NULL,
++                             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
++                             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
++    }
++
+ fail:
+     return err;
+ }
+@@ -1522,6 +1584,7 @@ static av_cold int vulkan_encode_ffv1_close(AVCodecContext *avctx)
+ 
+     ff_vk_free_buf(&fv->s, &fv->results_buf);
+     ff_vk_free_buf(&fv->s, &fv->order_buf);
++    ff_vk_free_buf(&fv->s, &fv->rgb_tmp);
+ 
+     ff_vk_free_buf(&fv->s, &fv->consts_buf);
+ 
+diff --git a/libavcodec/vulkan/ffv1_common.glsl b/libavcodec/vulkan/ffv1_common.glsl
+index 61e8446e9c..65e1ee9124 100644
+--- a/libavcodec/vulkan/ffv1_common.glsl
++++ b/libavcodec/vulkan/ffv1_common.glsl
+@@ -23,6 +23,17 @@
+ #ifndef VULKAN_FFV1_COMMON_H
+ #define VULKAN_FFV1_COMMON_H
+ 
++/* How the neighbour samples of the frame being coded are reached. Everything
++ * but the RGB range coder encoder reads and writes the image it was handed;
++ * that one keeps its colour-transform ring in a storage buffer instead (see
++ * ffv1_enc_rgb.comp.glsl), so it overrides these before including us. */
++#ifndef SURF_LOAD
++#define SURF_LOAD(surf, addr)     imageLoad((surf), (addr))
++#endif
++#ifndef SURF_STORE
++#define SURF_STORE(surf, addr, val) imageStore((surf), (addr), (val))
++#endif
++
+ #ifdef GOLOMB
+ #include "ffv1_vlc.glsl"
+ #endif
+@@ -224,9 +235,9 @@ ivec4 get_top(IMG_QUALI uimage2D pred, ivec2 sp, ivec2 off,
+     ivec2 yoff_border1 = expectEXT(off.x == 0, false) ? off + ivec2(1, -1) : off;
+ 
+     /* Thanks to the same coincidence as below, we can skip checking if off == 0, 1 */
+-    VTYPE3 top  = VTYPE3(TYPE(imageLoad(pred, sp + LADDR(yoff_border1 + ivec2(-1, -1)))[comp]),
+-                         TYPE(imageLoad(pred, sp + LADDR(off + ivec2(0, -1)))[comp]),
+-                         TYPE(imageLoad(pred, sp + LADDR(off + ivec2(min(1, sw - off.x - 1), -1)))[comp]));
++    VTYPE3 top  = VTYPE3(TYPE(SURF_LOAD(pred, sp + LADDR(yoff_border1 + ivec2(-1, -1)))[comp]),
++                         TYPE(SURF_LOAD(pred, sp + LADDR(off + ivec2(0, -1)))[comp]),
++                         TYPE(SURF_LOAD(pred, sp + LADDR(off + ivec2(min(1, sw - off.x - 1), -1)))[comp]));
+ 
+     TYPE top2 = TYPE(0);
+     if (has_extend_lookup && extend_lookup) {
+@@ -235,7 +246,7 @@ ivec4 get_top(IMG_QUALI uimage2D pred, ivec2 sp, ivec2 off,
+         if (rgb_linecache != 2)
+             top2_off += ivec2(0, -2);
+ 
+-        top2 = TYPE(imageLoad(pred, sp + LADDR(top2_off))[comp]);
++        top2 = TYPE(SURF_LOAD(pred, sp + LADDR(top2_off))[comp]);
+     }
+ 
+     return ivec4(top, top2);
+@@ -329,7 +340,7 @@ void linecache_load(IMG_QUALI uimage2D src, ivec2 sp, int y, uint comp)
+     {
+         TYPE c = TYPE(0);
+         if (y > 0)
+-            c = TYPE(imageLoad(src, sp + LADDR(ivec2(0, y - 1)))[comp]);
++            c = TYPE(SURF_LOAD(src, sp + LADDR(ivec2(0, y - 1)))[comp]);
+         linecache[1] = c;
+     }
+ 
+diff --git a/libavcodec/vulkan/ffv1_enc.comp.glsl b/libavcodec/vulkan/ffv1_enc.comp.glsl
+index d45c32980b..90aabbe4e0 100644
+--- a/libavcodec/vulkan/ffv1_enc.comp.glsl
++++ b/libavcodec/vulkan/ffv1_enc.comp.glsl
+@@ -32,6 +32,13 @@
+ #define PB_UNALIGNED
+ #include "common.glsl"
+ #include "ffv1_common.glsl"
++
++/* Surface handed to encode_line()/encode_line_pcm() in the RGB paths. The
++ * buffer variant (ffv1_enc_rgb.comp.glsl) redirects all of its accesses and
++ * overrides this with a dummy. */
++#ifndef RGB_TMP_SURF
++#define RGB_TMP_SURF tmp
++#endif
+ #extension GL_KHR_shader_subgroup_arithmetic : require
+ 
+ layout (set = 0, binding = 2, scalar) uniform crc_ieee_buf {
+@@ -80,7 +87,7 @@ void encode_line_pcm(in SliceContext sc, readonly uimage2D img,
+ #endif
+ 
+     for (int x = 0; x < w; x++) {
+-        uint v = subgroupBroadcastFirst(imageLoad(img, sp + LADDR(ivec2(x, y)))[comp]);
++        uint v = subgroupBroadcastFirst(SURF_LOAD(img, sp + LADDR(ivec2(x, y)))[comp]);
+ 
+         for (uint i = (rct_offset >> 1); i > 0; i >>= 1)
+             put_rac_equi(bool(v & i));
+@@ -117,14 +124,14 @@ void encode_line(in SliceContext sc, readonly uimage2D img, uint state_off,
+     ivec2 pc = ivec2(min(lane, w - 1), y);
+     uvec4 rcur, rT, rTR, rL, rTL, rLL = uvec4(0), rTT = uvec4(0);
+ #ifdef RGB
+-    rcur = imageLoad(img, sp + LADDR(pc));
+-    rT   = imageLoad(img, sp + LADDR(pc + ivec2(0, -1)));
+-    rTR  = imageLoad(img, sp + LADDR(ivec2(min(pc.x + 1, w - 1), y - 1)));
+-    rL   = imageLoad(img, sp + LADDR(pc.x > 0 ? pc + ivec2(-1, 0) : ivec2(0, y - 1)));
+-    rTL  = imageLoad(img, sp + LADDR(pc.x > 0 ? pc + ivec2(-1, -1) : ivec2(0, y - 2)));
++    rcur = SURF_LOAD(img, sp + LADDR(pc));
++    rT   = SURF_LOAD(img, sp + LADDR(pc + ivec2(0, -1)));
++    rTR  = SURF_LOAD(img, sp + LADDR(ivec2(min(pc.x + 1, w - 1), y - 1)));
++    rL   = SURF_LOAD(img, sp + LADDR(pc.x > 0 ? pc + ivec2(-1, 0) : ivec2(0, y - 1)));
++    rTL  = SURF_LOAD(img, sp + LADDR(pc.x > 0 ? pc + ivec2(-1, -1) : ivec2(0, y - 2)));
+     if (enc_ext) {
+-        rLL = pc.x > 0 ? imageLoad(img, sp + LADDR(pc.x > 1 ? pc + ivec2(-2, 0) : ivec2(0, y - 1))) : uvec4(0);
+-        rTT = imageLoad(img, sp + LADDR(pc + ivec2(0, -2)));
++        rLL = pc.x > 0 ? SURF_LOAD(img, sp + LADDR(pc.x > 1 ? pc + ivec2(-2, 0) : ivec2(0, y - 1))) : uvec4(0);
++        rTT = SURF_LOAD(img, sp + LADDR(pc + ivec2(0, -2)));
+     }
+ #else
+     int y1 = max(y - 1, 0);
+@@ -198,15 +205,15 @@ void encode_line(in SliceContext sc, readonly uimage2D img, uint state_off,
+         if (x + int(RC_LANES) < w) {
+             pc = ivec2(min(x + int(RC_LANES) + lane, w - 1), y);
+ #ifdef RGB
+-            rcur = imageLoad(img, sp + LADDR(pc));
+-            rT   = imageLoad(img, sp + LADDR(pc + ivec2(0, -1)));
+-            rTR  = imageLoad(img, sp + LADDR(ivec2(min(pc.x + 1, w - 1), y - 1)));
+-            rL   = imageLoad(img, sp + LADDR(pc + ivec2(-1, 0)));
+-            rTL  = imageLoad(img, sp + LADDR(pc + ivec2(-1, -1)));
++            rcur = SURF_LOAD(img, sp + LADDR(pc));
++            rT   = SURF_LOAD(img, sp + LADDR(pc + ivec2(0, -1)));
++            rTR  = SURF_LOAD(img, sp + LADDR(ivec2(min(pc.x + 1, w - 1), y - 1)));
++            rL   = SURF_LOAD(img, sp + LADDR(pc + ivec2(-1, 0)));
++            rTL  = SURF_LOAD(img, sp + LADDR(pc + ivec2(-1, -1)));
+             if (enc_ext) {
+-                rLL = imageLoad(img, sp + LADDR(RC_LANES > 1 || pc.x > 1 ? pc + ivec2(-2, 0) :
+-                                                                       ivec2(0, y - 1)));
+-                rTT = imageLoad(img, sp + LADDR(pc + ivec2(0, -2)));
++                rLL = SURF_LOAD(img, sp + LADDR(RC_LANES > 1 || pc.x > 1 ? pc + ivec2(-2, 0) :
++                                                                          ivec2(0, y - 1)));
++                rTT = SURF_LOAD(img, sp + LADDR(pc + ivec2(0, -2)));
+             }
+ #else
+             rcur = imageLoad(img, sp + pc);
+@@ -309,7 +316,7 @@ void encode_line(in SliceContext sc, readonly uimage2D img, uint state_off,
+     for (int x = 0; x < w; x++) {
+         ivec2 d = get_pred(img, sp, ivec2(x, y), comp, w,
+                            quant_table_idx, extend_lookup[quant_table_idx]);
+-        TYPE cur = TYPE(imageLoad(img, sp + LADDR(ivec2(x, y)))[comp]);
++        TYPE cur = TYPE(SURF_LOAD(img, sp + LADDR(ivec2(x, y)))[comp]);
+         d[1] = int(cur) - d[1];
+         linecache_next(cur);
+ 
+@@ -425,7 +432,7 @@ void preload_rgb(uint slice_idx, in SliceContext sc, ivec2 sp, int w, int y,
+                 if (apply_rct)
+                     transform_sample(pix[k], sc.slice_rct_coef, rct_offset);
+ #endif
+-                imageStore(tmp, sp + LADDR(ivec2(x, y)), pix[k]);
++                SURF_STORE(tmp, sp + LADDR(ivec2(x, y)), pix[k]);
+             }
+         }
+     }
+@@ -461,7 +468,7 @@ void preload_bayer(in SliceContext sc, ivec2 sp, int w, int y, bool apply_rct)
+             gb = gd;
+         }
+ 
+-        imageStore(tmp, lpos, ivec4(gr, gb, b, r));
++        SURF_STORE(tmp, lpos, ivec4(gr, gb, b, r));
+     }
+ 
+     memoryBarrierImage();
+@@ -505,7 +512,7 @@ void encode_slice(in SliceContext sc, uint slice_idx)
+             preload_rgb(slice_idx, sc, sp, sc.slice_dim.x, y, false);
+ 
+             for (uint c = 0; c < color_planes; c++)
+-                encode_line_pcm(sc, tmp, sp, y, 0, rgb_plane_order[c]);
++                encode_line_pcm(sc, RGB_TMP_SURF, sp, y, 0, rgb_plane_order[c]);
+         }
+ #else
+         for (int c = 0; c < color_planes; c++) {
+@@ -555,7 +562,7 @@ void encode_slice(in SliceContext sc, uint slice_idx)
+         preload_rgb(slice_idx, sc, sp, sc.slice_dim.x, y, true);
+ 
+         for (uint c = 0; c < color_planes; c++)
+-            encode_line(sc, tmp, slice_state_off[c],
++            encode_line(sc, RGB_TMP_SURF, slice_state_off[c],
+                         sp, y, 0, rgb_plane_order[c], bits[c],
+                         U8(context_model), run_index);
+     }
+diff --git a/libavcodec/vulkan/ffv1_enc_rgb.comp.glsl b/libavcodec/vulkan/ffv1_enc_rgb.comp.glsl
+index 90d136be1f..68283b44a8 100644
+--- a/libavcodec/vulkan/ffv1_enc_rgb.comp.glsl
++++ b/libavcodec/vulkan/ffv1_enc_rgb.comp.glsl
+@@ -24,7 +24,44 @@
+ #extension GL_GOOGLE_include_directive : require
+ #extension GL_EXT_shader_image_load_formatted : require
+ 
++#define RGB
++
++/* The range coder variant keeps the reversible colour transform ring in a
++ * device-local storage buffer. Every line is written and then read back by the
++ * same workgroup immediately after, which a buffer handles much better than a
++ * storage image. */
++#if !defined(GOLOMB) && !defined(FLOAT)
++#define RGB_TMP_BUFFER
++
++#extension GL_EXT_scalar_block_layout : require
++
++layout (set = 1, binding = 4, scalar) buffer rgb_tmp_buf {
++    uvec4 rgb_tmp[];
++};
++
++uvec4 tmp_load(ivec2 pos, uint w)
++{
++    return rgb_tmp[uint(pos.y)*w + uint(pos.x)];
++}
++
++void tmp_store(ivec2 pos, uint w, uvec4 v)
++{
++    rgb_tmp[uint(pos.y)*w + uint(pos.x)] = v;
++}
++
++#define SURF_LOAD(surf, addr)       tmp_load((addr), uint(img_size[0]))
++#define SURF_STORE(surf, addr, val) tmp_store((addr), uint(img_size[0]), (val))
++
++/* encode_line()/encode_line_pcm() still take a surface; in buffer mode the
++ * accessors ignore it, so hand them the first plane of the source image. */
++#define RGB_TMP_SURF src[0]
++
++#else
++
+ layout (set = 1, binding = 4) uniform uimage2D tmp;
+ 
+-#define RGB
++#define RGB_TMP_SURF tmp
++
++#endif
++
+ #include "ffv1_enc.comp.glsl"
+-- 
+2.55.0.windows.5
+
