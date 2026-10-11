@@ -4,15 +4,15 @@ Date: Tue, 20 Feb 2024 16:04:11 +0100
 Subject: [PATCH 03/19] avcodec/jpeg2000dec: support of 2 fields in 1 AVPacket
 
 ---
- libavcodec/jpeg2000dec.c | 78 +++++++++++++++++++++++++++++++++++-----
+ libavcodec/jpeg2000dec.c | 89 +++++++++++++++++++++++++++++++++-------
  libavcodec/jpeg2000dec.h |  5 +++
- 2 files changed, 74 insertions(+), 9 deletions(-)
+ 2 files changed, 80 insertions(+), 14 deletions(-)
 
 diff --git a/libavcodec/jpeg2000dec.c b/libavcodec/jpeg2000dec.c
-index 369377e4fc..f4e423b0c2 100644
+index 870678f..16c673b 100644
 --- a/libavcodec/jpeg2000dec.c
 +++ b/libavcodec/jpeg2000dec.c
-@@ -207,6 +207,8 @@ static int get_siz(Jpeg2000DecoderContext *s)
+@@ -208,6 +208,8 @@ static int get_siz(Jpeg2000DecoderContext *s)
      int ret;
      int o_dimx, o_dimy; //original image dimensions.
      int dimx, dimy;
@@ -21,7 +21,7 @@ index 369377e4fc..f4e423b0c2 100644
  
      if (bytestream2_get_bytes_left(&s->g) < 36) {
          av_log(s->avctx, AV_LOG_ERROR, "Insufficient space for SIZ\n");
-@@ -224,7 +226,7 @@ static int get_siz(Jpeg2000DecoderContext *s)
+@@ -225,7 +227,7 @@ static int get_siz(Jpeg2000DecoderContext *s)
      s->tile_offset_y  = bytestream2_get_be32u(&s->g); // YT0Siz
      ncomponents       = bytestream2_get_be16u(&s->g); // CSiz
  
@@ -30,20 +30,17 @@ index 369377e4fc..f4e423b0c2 100644
          avpriv_request_sample(s->avctx, "Large Dimensions");
          return AVERROR_PATCHWELCOME;
      }
-@@ -335,6 +337,20 @@ static int get_siz(Jpeg2000DecoderContext *s)
+@@ -336,6 +338,17 @@ static int get_siz(Jpeg2000DecoderContext *s)
              return AVERROR(ENOMEM);
      }
  
 +    /* management of frames having 2 separate codestreams */
 +    if (s->has_2_fields) {
-+        s->height <<= 1;
-+        s->image_offset_y <<= 1;
-+        s->tile_offset_y <<= 1;
 +        if (s->is_second_field && (s->width != previous_width || s->height != previous_height)) {
 +            avpriv_request_sample(s->avctx, "Support of 2 JPEG 2000 codestreams with different base characteristics");
 +            return AVERROR_PATCHWELCOME;
 +        }
-+        if (s->image_offset_y || s->tile_offset_y || (s->tile_height << 1) != s->height) {
++        if (s->image_offset_y || s->tile_offset_y || s->tile_height != s->height) {
 +            av_log(s->avctx, AV_LOG_WARNING, "Decoding of 2 fields having titles in 1 AVPacket was not tested\n");
 +        }
 +    }
@@ -51,16 +48,25 @@ index 369377e4fc..f4e423b0c2 100644
      /* compute image size with reduction factor */
      o_dimx = ff_jpeg2000_ceildivpow2(s->width  - s->image_offset_x,
                                                 s->reduction_factor);
-@@ -2353,7 +2369,7 @@ static inline int tile_codeblocks(const Jpeg2000DecoderContext *s, Jpeg2000Tile
+@@ -348,7 +361,7 @@ static int get_siz(Jpeg2000DecoderContext *s)
+         dimy = FFMAX(dimy, ff_jpeg2000_ceildiv(o_dimy, s->cdy[i]));
+     }
+ 
+-    ret = ff_set_dimensions(s->avctx, dimx << s->avctx->lowres, dimy << s->avctx->lowres);
++    ret = ff_set_dimensions(s->avctx, dimx << s->avctx->lowres, (dimy << s->has_2_fields) << s->avctx->lowres);
+     if (ret < 0)
+         return ret;
+ 
+@@ -2354,7 +2367,7 @@ static inline int tile_codeblocks(const Jpeg2000DecoderContext *s, Jpeg2000Tile
                                                                                                    \
              y    = tile->comp[compno].coord[1][0] -                                               \
                     ff_jpeg2000_ceildiv(s->image_offset_y, s->cdy[compno]);                        \
 -            line = (PIXEL *)picture->data[plane] + y * (picture->linesize[plane] / sizeof(PIXEL));\
-+            line = (PIXEL *)picture->data[plane] + (y + (s->is_second_field ^ s->is_bottom_coded_first)) * (picture->linesize[plane] / sizeof(PIXEL));\
++            line = (PIXEL *)picture->data[plane] + ((y << s->has_2_fields) + (s->is_second_field ^ s->is_bottom_coded_first)) * (picture->linesize[plane] / sizeof(PIXEL));\
              for (; y < h; y++) {                                                                  \
                  PIXEL *dst;                                                                       \
                                                                                                    \
-@@ -2380,7 +2396,7 @@ static inline int tile_codeblocks(const Jpeg2000DecoderContext *s, Jpeg2000Tile
+@@ -2381,7 +2394,7 @@ static inline int tile_codeblocks(const Jpeg2000DecoderContext *s, Jpeg2000Tile
                          dst += pixelsize;                                                         \
                      }                                                                             \
                  }                                                                                 \
@@ -69,15 +75,24 @@ index 369377e4fc..f4e423b0c2 100644
              }                                                                                     \
          }                                                                                         \
                                                                                                    \
-@@ -2859,6 +2875,7 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
+@@ -2856,13 +2869,14 @@ static av_cold int jpeg2000_decode_init(AVCodecContext *avctx)
+ }
+ 
+ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
+-                                 const AVPacket *avpkt)
++                                 const uint8_t *buf, int buf_size)
  {
      Jpeg2000DecoderContext *s = avctx->priv_data;
      int ret;
 +    int codestream_size;
  
      s->avctx     = avctx;
-     bytestream2_init(&s->g, avpkt->data, avpkt->size);
-@@ -2893,20 +2910,50 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
+-    bytestream2_init(&s->g, avpkt->data, avpkt->size);
++    bytestream2_init(&s->g, buf, buf_size);
+     s->curtileno = -1;
+     memset(s->cdef, -1, sizeof(s->cdef));
+ 
+@@ -2894,20 +2908,51 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
          ret = AVERROR_INVALIDDATA;
          goto end;
      }
@@ -96,7 +111,8 @@ index 369377e4fc..f4e423b0c2 100644
 +
      if (ret = jpeg2000_read_main_headers(s))
          goto end;
-+    codestream_size = avpkt->size - bytestream2_get_bytes_left(&s->g);
+ 
++    codestream_size = buf_size - bytestream2_get_bytes_left(&s->g);
 +
 +    /* management of frames having 2 separate codestreams */
 +    if (bytestream2_get_bytes_left(&s->g) > 1 && bytestream2_peek_be16(&s->g) == JPEG2000_SOC) {
@@ -104,23 +120,23 @@ index 369377e4fc..f4e423b0c2 100644
 +            /* 2 codestreams newly detected, adatping output frame structure for handling 2 codestreams and parsing again the headers (fast and done once for a stable stream) */
 +            s->has_2_fields = 1;
 +            jpeg2000_dec_cleanup(s);
-+            return jpeg2000_decode_frame(avctx, picture, got_frame, avpkt);
++            return jpeg2000_decode_frame(avctx, picture, buf, buf_size);
 +        }
 +    } else if (s->has_2_fields && !s->is_second_field) {
 +        /* 1 codestream newly detected, adatping output frame structure for handling 1 codestream and parsing again the headers (fast and never done for a stable stream) */
 +        s->has_2_fields = 0;
 +        s->is_bottom_coded_first = 0;
 +        jpeg2000_dec_cleanup(s);
-+        return jpeg2000_decode_frame(avctx, picture, got_frame, avpkt);
++        return jpeg2000_decode_frame(avctx, picture, buf, buf_size);
 +    }
- 
++
      if (s->sar.num && s->sar.den)
          avctx->sample_aspect_ratio = s->sar;
      s->sar.num = s->sar.den = 0;
  
      if (avctx->skip_frame >= AVDISCARD_ALL) {
 -        jpeg2000_dec_cleanup(s);
--        return avpkt->size;
+-        return 0;
 +        ret = codestream_size;
 +        goto end;
      }
@@ -131,42 +147,55 @@ index 369377e4fc..f4e423b0c2 100644
          goto end;
  
      if (ret = jpeg2000_read_bitstream_packets(s))
-@@ -2918,17 +2965,30 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
- 
-     avctx->execute2(avctx, jpeg2000_decode_tile, picture, NULL, s->numXtiles * s->numYtiles);
+@@ -2922,17 +2967,33 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
+     avctx->execute2(avctx, jpeg2000_decode_tile, picture, NULL,
+                     s->numXtiles * s->numYtiles);
  
 -    jpeg2000_dec_cleanup(s);
 -
-     *got_frame = 1;
- 
      if (s->avctx->pix_fmt == AV_PIX_FMT_PAL8)
          memcpy(picture->data[1], s->palette, 256 * sizeof(uint32_t));
  
--    return bytestream2_tell(&s->g);
+-    return 0;
 +    ret = codestream_size;
  
  end:
+     /* Do not leave a partially initialized frame on the output. */
+-    av_frame_unref(picture);
++    if (ret < 0)
++        av_frame_unref(picture);
      jpeg2000_dec_cleanup(s);
 +
 +    /* management of frames having 2 separate codestreams */
-+    if (s->has_2_fields && !s->is_second_field && ret < avpkt->size && ret >= 0) {
++    if (s->has_2_fields && !s->is_second_field && ret >= 0 && ret < buf_size) {
 +        /* only the 1st codestream was parsed, parsing now the 2nd codestream */
++        int ret2;
++
 +        s->is_second_field = 1;
-+        avpkt->data += ret;
-+        avpkt->size -= ret;
-+        ret = jpeg2000_decode_frame(avctx, picture, got_frame, avpkt);
-+        avpkt->data -= ret;
-+        avpkt->size += ret;
++        ret2 = jpeg2000_decode_frame(avctx, picture, buf + ret, buf_size - ret);
 +        s->is_second_field = 0;
-+        if (ret >= 0)
-+            ret += codestream_size;
++        if (ret2 < 0) {
++            av_frame_unref(picture);
++            ret = ret2;
++        } else {
++            ret += ret2;
++        }
 +    }
 +
      return ret;
  }
  
+@@ -2949,7 +3010,7 @@ static int jpeg2000_receive_frame(AVCodecContext *avctx, AVFrame *frame)
+         if (ret < 0)
+             return ret;
+ 
+-        ret = jpeg2000_decode_frame(avctx, frame, avpkt);
++        ret = jpeg2000_decode_frame(avctx, frame, avpkt->data, avpkt->size);
+         av_packet_unref(avpkt);
+         if (ret < 0)
+             return ret;
 diff --git a/libavcodec/jpeg2000dec.h b/libavcodec/jpeg2000dec.h
-index fce3823164..1fe0491788 100644
+index fce3823..1fe0491 100644
 --- a/libavcodec/jpeg2000dec.h
 +++ b/libavcodec/jpeg2000dec.h
 @@ -120,6 +120,11 @@ typedef struct Jpeg2000DecoderContext {
