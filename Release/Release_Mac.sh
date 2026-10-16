@@ -219,10 +219,18 @@ pushd "${output_directory}"
     done
 
     for lib in x86_64/lib/*.dylib ; do
-        if [ ! -f "${lib}" ] ; then
+        if [ ! -f "${lib}" ] || [ -L "${lib}" ] ; then
             continue
         fi
         lipo -create x86_64/lib/$(basename ${lib}) arm64/lib/$(basename ${lib}) -output universal/lib/$(basename ${lib})
+    done
+
+    # recreate the version symlinks
+    for lib in x86_64/lib/*.dylib ; do
+        if [ ! -L "${lib}" ] ; then
+            continue
+        fi
+        ln -sf "$(basename "$(readlink "${lib}")")" "universal/lib/$(basename ${lib})"
     done
 
     for bin in x86_64/bin/ff* ; do
@@ -234,7 +242,7 @@ pushd "${output_directory}"
 
     if [ "${build_type}" != "static" ] ; then
         for bin in universal/bin/ff* universal/lib/*.dylib ; do
-            if [ ! -f "${bin}" ] ; then
+            if [ ! -f "${bin}" ] || [ -L "${bin}" ] ; then
                 continue
             fi
             for lib in $(otool -L "${bin}" | grep "${output_directory}" | awk -F' ' '{print $1 }') ; do
@@ -242,10 +250,11 @@ pushd "${output_directory}"
             done
         done
         for lib in universal/lib/*.dylib ; do
-            if [ ! -f "${lib}" ] ; then
+            if [ ! -f "${lib}" ] ||  [ -L "${lib}" ] ; then
                 continue
             fi
-            install_name_tool -id "@executable_path/../lib/$(basename ${lib})" "${lib}"
+            original_id="$(otool -D "x86_64/lib/$(basename ${lib})" | tail -n 1)"
+            install_name_tool -id "@executable_path/../lib/$(basename "${original_id}")" "${lib}"
         done
     fi
 
@@ -273,11 +282,13 @@ pushd "${output_directory}"
     sed -i '' "s|%BUILD_OPTIONS%|${options_list%???}|g" universal/README.txt
     pushd universal
         if [ "${build_type}" == "shared" ] ; then
-            zip -r ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin lib share -x 'share/ffmpeg/examples/*'
+            zip -r -y ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin lib share -x 'share/ffmpeg/examples/*'
+            sed -i '' "s/binaries/development files/g" README.txt
+            zip -r -y ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include share/ffmpeg/examples
         else
             zip -r ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin share -x 'share/ffmpeg/examples/*'
+            sed -i '' "s/binaries/development files/g" README.txt
+            zip -r -y ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include lib share/ffmpeg/examples
         fi
-        sed -i '' "s/binaries/development files/g" README.txt
-        zip -r ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include lib share/ffmpeg/examples
     popd
 popd
