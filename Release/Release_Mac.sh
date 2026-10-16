@@ -27,7 +27,7 @@ if [ "${build_type}" == "static" ] ; then
 else
     build_options="${build_options} --disable-static --enable-shared"
 fi
-build_options="${build_options} --extra-cflags=-mmacosx-version-min=${macos_version_min} --extra-cxxflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-Wl,-rpath,/usr/local/lib --extra-ldflags=-Wl,-rpath,/opt/homebrew/lib"
+build_options="${build_options} --extra-cflags=-mmacosx-version-min=${macos_version_min} --extra-cxxflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-Wl,-headerpad_max_install_names --install-name-dir=@rpath"
 
 mkdir -p ${output_directory}/{x86_64,arm64}/{bin,lib/meson,share,include}
 
@@ -245,16 +245,12 @@ pushd "${output_directory}"
             if [ ! -f "${bin}" ] || [ -L "${bin}" ] ; then
                 continue
             fi
-            for lib in $(otool -L "${bin}" | grep "${output_directory}" | awk -F' ' '{print $1 }') ; do
-                install_name_tool -change "${lib}" "@executable_path/../lib/$(basename ${lib})" "${bin}"
-            done
-        done
-        for lib in universal/lib/*.dylib ; do
-            if [ ! -f "${lib}" ] ||  [ -L "${lib}" ] ; then
-                continue
-            fi
-            original_id="$(otool -D "x86_64/lib/$(basename ${lib})" | tail -n 1)"
-            install_name_tool -id "@executable_path/../lib/$(basename "${original_id}")" "${lib}"
+            case "${bin}" in
+                universal/bin/*) install_name_tool -add_rpath "@executable_path/../lib" "${bin}" ;;
+                *)               install_name_tool -add_rpath "@loader_path" "${bin}" ;;
+            esac
+            install_name_tool -add_rpath "/usr/local/lib" "${bin}"
+            install_name_tool -add_rpath "/opt/homebrew/lib" "${bin}"
         done
     fi
 
