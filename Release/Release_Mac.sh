@@ -27,7 +27,7 @@ if [ "${build_type}" == "static" ] ; then
 else
     build_options="${build_options} --disable-static --enable-shared"
 fi
-build_options="${build_options} --extra-cflags=-mmacosx-version-min=${macos_version_min} --extra-cxxflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-Wl,-rpath,/usr/local/lib --extra-ldflags=-Wl,-rpath,/opt/homebrew/lib"
+build_options="${build_options} --extra-cflags=-mmacosx-version-min=${macos_version_min} --extra-cxxflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-mmacosx-version-min=${macos_version_min} --extra-ldflags=-Wl,-headerpad_max_install_names --install-name-dir=@rpath"
 
 mkdir -p ${output_directory}/{x86_64,arm64}/{bin,lib/meson,share,include}
 
@@ -219,10 +219,18 @@ pushd "${output_directory}"
     done
 
     for lib in x86_64/lib/*.dylib ; do
-        if [ ! -f "${lib}" ] ; then
+        if [ ! -f "${lib}" ] || [ -L "${lib}" ] ; then
             continue
         fi
         lipo -create x86_64/lib/$(basename ${lib}) arm64/lib/$(basename ${lib}) -output universal/lib/$(basename ${lib})
+    done
+
+    # recreate the version symlinks
+    for lib in x86_64/lib/*.dylib ; do
+        if [ ! -L "${lib}" ] ; then
+            continue
+        fi
+        ln -sf "$(basename "$(readlink "${lib}")")" "universal/lib/$(basename ${lib})"
     done
 
     for bin in x86_64/bin/ff* ; do
@@ -234,18 +242,15 @@ pushd "${output_directory}"
 
     if [ "${build_type}" != "static" ] ; then
         for bin in universal/bin/ff* universal/lib/*.dylib ; do
-            if [ ! -f "${bin}" ] ; then
+            if [ ! -f "${bin}" ] || [ -L "${bin}" ] ; then
                 continue
             fi
-            for lib in $(otool -L "${bin}" | grep "${output_directory}" | awk -F' ' '{print $1 }') ; do
-                install_name_tool -change "${lib}" "@executable_path/../lib/$(basename ${lib})" "${bin}"
-            done
-        done
-        for lib in universal/lib/*.dylib ; do
-            if [ ! -f "${lib}" ] ; then
-                continue
-            fi
-            install_name_tool -id "@executable_path/../lib/$(basename ${lib})" "${lib}"
+            case "${bin}" in
+                universal/bin/*) install_name_tool -add_rpath "@executable_path/../lib" "${bin}" ;;
+                *)               install_name_tool -add_rpath "@loader_path" "${bin}" ;;
+            esac
+            install_name_tool -add_rpath "/usr/local/lib" "${bin}"
+            install_name_tool -add_rpath "/opt/homebrew/lib" "${bin}"
         done
     fi
 
@@ -273,11 +278,13 @@ pushd "${output_directory}"
     sed -i '' "s|%BUILD_OPTIONS%|${options_list%???}|g" universal/README.txt
     pushd universal
         if [ "${build_type}" == "shared" ] ; then
-            zip -r ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin lib share -x 'share/ffmpeg/examples/*'
+            zip -r -y ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin lib share -x 'share/ffmpeg/examples/*'
+            sed -i '' "s/binaries/development files/g" README.txt
+            zip -r -y ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include share/ffmpeg/examples
         else
             zip -r ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin share -x 'share/ffmpeg/examples/*'
+            sed -i '' "s/binaries/development files/g" README.txt
+            zip -r -y ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include lib share/ffmpeg/examples
         fi
-        sed -i '' "s/binaries/development files/g" README.txt
-        zip -r ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include lib share/ffmpeg/examples
     popd
 popd
