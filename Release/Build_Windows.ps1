@@ -34,7 +34,7 @@ else {
     $build_options += "--disable-static", "--enable-shared"
 }
 $build_options += "--toolchain=msvc", "--enable-cross-compile", "--extra-libs=msvcrt.lib", "--extra-cflags=-I${output_directory_posix}/include", "--extra-cxxflags=-I${output_directory_posix}/include"
-$build_options += "--glslc=glslc.exe" # Use host's glslc executable
+$build_options += "--glslc=glslc.exe", "--x86asmexe=nasm.exe" # Use host executables
 
 $Env:PKG_CONFIG_PATH = "${output_directory}\lib\pkgconfig"
 $Env:WSLENV = "INCLUDE:LIB:LIBPATH:PKG_CONFIG_PATH/p"
