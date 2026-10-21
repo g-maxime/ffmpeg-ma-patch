@@ -183,6 +183,39 @@ pushd "${build_directory}/sdl"
     done
 popd
 
+#-----------------------------------------------------------------------
+# Get Vulkan runtime
+mkdir -p "${build_directory}/vulkan-sdk"
+pushd "${build_directory}/vulkan-sdk"
+    curl -LO https://sdk.lunarg.com/sdk/download/latest/mac/vulkan_sdk.zip
+    unzip -q vulkan_sdk.zip -d installer
+    installer_dat="$(find installer -path '*/Contents/Resources/installer.dat' -print -quit)"
+    if [ -z "${installer_dat}" ] ; then
+        echo "Vulkan SDK installer.dat not found"
+        exit 1
+    fi
+
+    # The installer is a Qt resource containing two embedded 7z archives.
+    # Locate the one with the Vulkan runtime so this remains independent of
+    # offsets and packager details in future SDK releases.
+    vulkan_archive=
+    while IFS=: read -r archive_offset _ ; do
+        tail -c +$((archive_offset + 1)) "${installer_dat}" > embedded.7z
+        if tar -tf embedded.7z 2>/dev/null | grep -qx 'macOS/lib/libvulkan_kosmickrisp.dylib' ; then
+            vulkan_archive="${PWD}/embedded.7z"
+            break
+        fi
+    done < <(LC_ALL=C grep -aob $'\x37\x7a\xbc\xaf\x27\x1c' "${installer_dat}")
+
+    if [ -z "${vulkan_archive}" ] ; then
+        echo "Vulkan runtime archive not found in the SDK installer"
+        exit 1
+    fi
+
+    tar -xf "${vulkan_archive}" 'macOS/lib/libvulkan*' 'macOS/share/vulkan/icd.d/libkosmickrisp_icd.json'
+    rm -f embedded.7z
+popd
+
 # Copy DeckLinkSDK include files
 pushd "${root_directory}/ffmpeg"
     for arch in x86_64 arm64 ; do
@@ -210,6 +243,11 @@ popd
 # Package
 pushd "${output_directory}"
     mkdir -p universal/{bin,lib,share,include,patches}
+    vulkan_runtime_directory="${output_directory}/universal/lib/ffmpeg-ma/lib"
+    mkdir -p "${vulkan_runtime_directory}"
+    cp -P "${build_directory}"/vulkan-sdk/macOS/lib/libvulkan*.dylib "${vulkan_runtime_directory}/"
+    cp -L "${build_directory}/vulkan-sdk/macOS/share/vulkan/icd.d/libkosmickrisp_icd.json" "${vulkan_runtime_directory}/"
+    sed -i '' 's|"library_path": ".*"|"library_path": "./libvulkan_kosmickrisp.dylib"|' "${vulkan_runtime_directory}/libkosmickrisp_icd.json"
 
     for lib in x86_64/lib/*.a ; do
         if [ ! -f "${lib}" ] ; then
@@ -240,23 +278,32 @@ pushd "${output_directory}"
         lipo -create x86_64/bin/$(basename ${bin}) arm64/bin/$(basename ${bin}) -output universal/bin/$(basename ${bin})
     done
 
-    if [ "${build_type}" != "static" ] ; then
-        for bin in universal/bin/ff* universal/lib/*.dylib ; do
-            if [ ! -f "${bin}" ] || [ -L "${bin}" ] ; then
-                continue
-            fi
-            case "${bin}" in
-                universal/bin/*) install_name_tool -add_rpath "@executable_path/../lib" "${bin}" ;;
-                *)               install_name_tool -add_rpath "@loader_path" "${bin}" ;;
-            esac
+    for bin in universal/bin/ff* ; do
+        if [ ! -f "${bin}" ] || [ -L "${bin}" ] ; then
+            continue
+        fi
+        install_name_tool -add_rpath "@executable_path/../lib" "${bin}"
+        install_name_tool -add_rpath "@executable_path/../lib/ffmpeg-ma/lib" "${bin}"
+        if [ "${build_type}" != "static" ] ; then
             install_name_tool -add_rpath "/usr/local/lib" "${bin}"
             install_name_tool -add_rpath "/opt/homebrew/lib" "${bin}"
+        fi
+    done
+
+    if [ "${build_type}" != "static" ] ; then
+        for lib in universal/lib/*.dylib ; do
+            if [ ! -f "${lib}" ] || [ -L "${lib}" ] ; then
+                continue
+            fi
+            install_name_tool -add_rpath "@loader_path" "${lib}"
+            install_name_tool -add_rpath "/usr/local/lib" "${lib}"
+            install_name_tool -add_rpath "/opt/homebrew/lib" "${lib}"
         done
     fi
 
     cp -r x86_64/share/ffmpeg universal/share
     cp -r x86_64/include/lib{av*,sw*} universal/include
-    cp ${root_directory}/ffmpeg/patches/*.patch universal/patches
+    cp "${root_directory}"/ffmpeg/patches/*.patch universal/patches
 
     if [ "${build_type}" != "static" ] ; then
         rm -f universal/lib/*.a
@@ -276,13 +323,23 @@ pushd "${output_directory}"
     sed -i '' "s|%BUILD_OS%|macOS|g" universal/README.txt
     sed -i '' "s|%PATCHES%|${patches_list%???}|g" universal/README.txt
     sed -i '' "s|%BUILD_OPTIONS%|${options_list%???}|g" universal/README.txt
+
+    if [ -n "${MACOS_CODESIGN_IDENTITY}" ] ; then
+        for binary in universal/bin/ff* universal/lib/*.dylib universal/lib/ffmpeg-ma/lib/*.dylib ; do
+            if [ ! -f "${binary}" ] || [ -L "${binary}" ] ; then
+                continue
+            fi
+            codesign --force --options runtime --timestamp --sign "${MACOS_CODESIGN_IDENTITY}" "${binary}"
+        done
+    fi
+
     pushd universal
         if [ "${build_type}" == "shared" ] ; then
             zip -r -y ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin lib share -x 'share/ffmpeg/examples/*'
             sed -i '' "s/binaries/development files/g" README.txt
             zip -r -y ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include share/ffmpeg/examples
         else
-            zip -r ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin share -x 'share/ffmpeg/examples/*'
+            zip -r -y ../../FFmpeg_Bin_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches bin lib/ffmpeg-ma/lib share -x 'share/ffmpeg/examples/*'
             sed -i '' "s/binaries/development files/g" README.txt
             zip -r -y ../../FFmpeg_Dev_${version}_Mac_${build_type/s/S}_universal.zip LICENSE.txt README.txt HowToGPU.txt patches include lib share/ffmpeg/examples
         fi

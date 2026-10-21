@@ -1,0 +1,80 @@
+Subject: [PATCH] Set KosmicKrisp Vulkan driver for portable macOS tools
+
+ffmpeg, ffprobe and ffplay all call init_dynload() before initializing
+their components. Derive the KosmicKrisp manifest path from the executable
+path and configure VK_DRIVER_FILES there, keeping the MediaArea package
+portable.
+
+The bundled KosmicKrisp driver is only available for macOS ARM64, so keep
+the setting limited to that target.
+
+---
+ fftools/cmdutils.c | 38 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 38 insertions(+)
+
+diff --git a/fftools/cmdutils.c b/fftools/cmdutils.c
+index 116988e..62cc044 100644
+--- a/fftools/cmdutils.c
++++ b/fftools/cmdutils.c
+@@ -22,10 +22,15 @@
+ #include <string.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <errno.h>
+ #include <math.h>
++#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
++#include <limits.h>
++#include <mach-o/dyld.h>
++#include <stdio.h>
++#endif
+ 
+ /* Include only the enabled headers since some compilers (namely, Sun
+    Studio) will not omit unused inline functions and create undefined
+    references to libraries that are not being built. */
+ 
+@@ -68,12 +73,45 @@ void uninit_opts(void)
+ void log_callback_help(void *ptr, int level, const char *fmt, va_list vl)
+ {
+     vfprintf(stdout, fmt, vl);
+ }
+ 
++#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
++static void init_vulkan_driver(void)
++{
++    char executable_path[PATH_MAX];
++    char resolved_path[PATH_MAX];
++    char *filename;
++    uint32_t executable_path_size = sizeof(executable_path);
++    static char vk_driver_files[
++        PATH_MAX + sizeof("VK_DRIVER_FILES=/../lib/ffmpeg-ma/lib/libkosmickrisp_icd.json")];
++    int length;
++
++    if (_NSGetExecutablePath(executable_path, &executable_path_size) ||
++        !realpath(executable_path, resolved_path))
++        return;
++
++    filename = strrchr(resolved_path, '/');
++    if (!filename)
++        return;
++    *filename = '\0';
++
++    length = snprintf(vk_driver_files, sizeof(vk_driver_files),
++                      "VK_DRIVER_FILES=%s/../lib/ffmpeg-ma/lib/libkosmickrisp_icd.json",
++                      resolved_path);
++    if (length < 0 || (size_t)length >= sizeof(vk_driver_files))
++        return;
++
++    putenv(vk_driver_files);
++}
++#endif
++
+ void init_dynload(void)
+ {
++#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
++    init_vulkan_driver();
++#endif
+ #if HAVE_SETDLLDIRECTORY && defined(_WIN32)
+     /* Calling SetDllDirectory with the empty string (but not NULL) removes the
+      * current working directory from the DLL search path as a security pre-caution. */
+     SetDllDirectory("");
+ #endif
