@@ -413,6 +413,8 @@ if [ "${build_type}" != "static" ] ; then
 
         mkdir -p "${tmp_path}/${tmp_files}"
         cp -a "../ffmpeg-ma.pkg" "${tmp_path}/${tmp_files}/"
+        mkdir -p "${tmp_path}/${tmp_files}/.background"
+        cp "${root_directory}/ffmpeg/patches/Release/Resource/Logo_White.icns" "${tmp_path}/${tmp_files}/.background/"
 
         hdiutil create "${tmp_path}/${tmp_dmg}" -ov -fs HFS+ -format UDRW -volname "ffmpeg-ma" -srcfolder "${tmp_path}/${tmp_files}"
         hdiutil attach -readwrite -noverify "${tmp_path}/${tmp_dmg}"
@@ -429,6 +431,7 @@ if [ "${build_type}" != "static" ] ; then
                     set viewOptions to the icon view options of container window
                     set arrangement of viewOptions to not arranged
                     set icon size of viewOptions to 72
+                    set background picture of viewOptions to file ".background:Logo_White.icns"
                     set position of item "ffmpeg-ma.pkg" of container window to {125, 175}
                     close
                 end tell
