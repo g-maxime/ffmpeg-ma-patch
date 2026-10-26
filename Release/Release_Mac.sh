@@ -213,7 +213,7 @@ pushd "${build_directory}/vulkan-sdk"
         exit 1
     fi
 
-    tar -xf "${vulkan_archive}" 'macOS/lib/libvulkan*' 'macOS/share/vulkan/icd.d/libkosmickrisp_icd.json'
+    tar -xf "${vulkan_archive}" 'macOS/lib/libvulkan*'
     rm -f embedded.7z
 popd
 
@@ -253,8 +253,6 @@ pushd "${output_directory}"
     vulkan_runtime_directory="${output_directory}/universal/lib/ffmpeg-ma/lib"
     mkdir -p "${vulkan_runtime_directory}"
     cp -P "${build_directory}"/vulkan-sdk/macOS/lib/libvulkan*.dylib "${vulkan_runtime_directory}/"
-    cp -L "${build_directory}/vulkan-sdk/macOS/share/vulkan/icd.d/libkosmickrisp_icd.json" "${vulkan_runtime_directory}/"
-    sed -i '' 's|"library_path": ".*"|"library_path": "./libvulkan_kosmickrisp.dylib"|' "${vulkan_runtime_directory}/libkosmickrisp_icd.json"
 
     for lib in x86_64/lib/*.a ; do
         if [ ! -f "${lib}" ] ; then
@@ -361,8 +359,6 @@ if [ "${build_type}" != "static" ] ; then
         vulkan_runtime_directory="${package_directory}/usr/local/lib/ffmpeg-ma/lib"
         mkdir -p "${vulkan_runtime_directory}"
         cp -P "${build_directory}"/vulkan-sdk/macOS/lib/libvulkan*.dylib "${vulkan_runtime_directory}/"
-        cp -L "${build_directory}/vulkan-sdk/macOS/share/vulkan/icd.d/libkosmickrisp_icd.json" "${vulkan_runtime_directory}/"
-        sed -i '' 's|"library_path": ".*"|"library_path": "./libvulkan_kosmickrisp.dylib"|' "${vulkan_runtime_directory}/libkosmickrisp_icd.json"
         if [ -n "${MACOS_CODESIGN_IDENTITY}" ] ; then
             for lib in "${vulkan_runtime_directory}"/*.dylib ; do
                 if [ ! -f "${lib}" ] || [ -L "${lib}" ] ; then

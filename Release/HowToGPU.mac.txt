@@ -10,8 +10,8 @@ KosmicKrisp is implemented on top of Metal 4 and requires:
  * macOS 26 or newer.
 
 The runtime is stored next to the binaries in lib/ffmpeg-ma/lib. The ffmpeg,
-ffprobe and ffplay executables automatically point VK_DRIVER_FILES to this
-runtime.
+ffprobe and ffplay executables directly load the bundled KosmicKrisp driver;
+no environment variable or ICD JSON manifest is required.
 
 Checking the installation
 -------------------------
