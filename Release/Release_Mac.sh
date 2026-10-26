@@ -327,7 +327,17 @@ pushd "${output_directory}"
             if [ ! -f "${bin}" ] || [ -L "${bin}" ] ; then
                 continue
             fi
-            codesign --force --options runtime --timestamp --sign "Developer ID Application: ${MACOS_CODESIGN_IDENTITY}" "${bin}"
+            case "${bin}" in
+                universal/bin/*)
+                    codesign --force --options runtime --timestamp \
+                        --entitlements "${release_directory}/Resource/ffmpeg.entitlements" \
+                        --sign "Developer ID Application: ${MACOS_CODESIGN_IDENTITY}" "${bin}"
+                    ;;
+                *)
+                    codesign --force --options runtime --timestamp \
+                        --sign "Developer ID Application: ${MACOS_CODESIGN_IDENTITY}" "${bin}"
+                    ;;
+            esac
         done
     fi
 
@@ -385,7 +395,9 @@ if [ "${build_type}" != "static" ] ; then
             lipo -create usr/local/bin/x86_64/$(basename ${bin}) usr/local/bin/arm64/$(basename ${bin}) -output usr/local/bin/$(basename ${bin})
             install_name_tool -add_rpath "/usr/local/lib/ffmpeg-ma/lib" usr/local/bin/$(basename ${bin})
             if [ -n "${MACOS_CODESIGN_IDENTITY}" ] ; then
-                codesign --force --options runtime --timestamp --sign "Developer ID Application: ${MACOS_CODESIGN_IDENTITY}" "usr/local/bin/$(basename ${bin})"
+                codesign --force --options runtime --timestamp \
+                    --entitlements "${release_directory}/Resource/ffmpeg.entitlements" \
+                    --sign "Developer ID Application: ${MACOS_CODESIGN_IDENTITY}" "usr/local/bin/$(basename ${bin})"
             fi
         done
         rm -fr usr/local/bin/{x86_64,arm64}
