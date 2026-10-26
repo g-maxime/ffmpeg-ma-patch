@@ -9,7 +9,7 @@ Subject: [PATCH 03/19] avcodec/jpeg2000dec: support of 2 fields in 1 AVPacket
  2 files changed, 80 insertions(+), 14 deletions(-)
 
 diff --git a/libavcodec/jpeg2000dec.c b/libavcodec/jpeg2000dec.c
-index 870678f..16c673b 100644
+index 7acb117..5f7a0c7 100644
 --- a/libavcodec/jpeg2000dec.c
 +++ b/libavcodec/jpeg2000dec.c
 @@ -208,6 +208,8 @@ static int get_siz(Jpeg2000DecoderContext *s)
@@ -147,7 +147,7 @@ index 870678f..16c673b 100644
          goto end;
  
      if (ret = jpeg2000_read_bitstream_packets(s))
-@@ -2922,17 +2967,33 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
+@@ -2920,17 +2965,33 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, AVFrame *picture,
      avctx->execute2(avctx, jpeg2000_decode_tile, picture, NULL,
                      s->numXtiles * s->numYtiles);
  
@@ -185,24 +185,24 @@ index 870678f..16c673b 100644
      return ret;
  }
  
-@@ -2949,7 +3010,7 @@ static int jpeg2000_receive_frame(AVCodecContext *avctx, AVFrame *frame)
+@@ -2947,7 +3008,7 @@ static int jpeg2000_receive_frame(AVCodecContext *avctx, AVFrame *frame)
          if (ret < 0)
              return ret;
  
 -        ret = jpeg2000_decode_frame(avctx, frame, avpkt);
 +        ret = jpeg2000_decode_frame(avctx, frame, avpkt->data, avpkt->size);
+         frame->pkt_dts = avpkt->dts;
          av_packet_unref(avpkt);
          if (ret < 0)
-             return ret;
 diff --git a/libavcodec/jpeg2000dec.h b/libavcodec/jpeg2000dec.h
-index fce3823..1fe0491 100644
+index fce3823..457cb5c 100644
 --- a/libavcodec/jpeg2000dec.h
 +++ b/libavcodec/jpeg2000dec.h
 @@ -120,6 +120,11 @@ typedef struct Jpeg2000DecoderContext {
  
      /*options parameters*/
      int             reduction_factor;
-+    
++
 +    /* field info */
 +    int8_t          has_2_fields;
 +    int8_t          is_bottom_coded_first;
