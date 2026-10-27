@@ -23,3 +23,13 @@ Vulkan device(s) found and exit without error:
 
 If the error "Unable to open the libvulkan library!" is displayed, the archive
 is incomplete. If no device is found, the macOS version or the hardware is unsupported.
+
+The "KosmicKrisp:" lines displayed with -v verbose tell which Vulkan loader
+and driver are used, or why the bundled ones could not be loaded.
+
+Using another Vulkan driver
+---------------------------
+
+Setting VK_DRIVER_FILES, VK_ICD_FILENAMES or VK_ADD_DRIVER_FILES disables
+the bundled KosmicKrisp driver: the Vulkan loader then uses the driver(s)
+listed in these variables instead.
